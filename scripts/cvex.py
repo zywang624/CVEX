@@ -1,16 +1,16 @@
-import vagrant
 import argparse
-import threading
 import os
-import time
-import paramiko
-import signal
-import yaml
-import sys
-import ansible_playbook_runner
 import re
 import shutil
+import signal
 import subprocess
+import sys
+import threading
+from pathlib import Path
+
+import paramiko
+import vagrant
+import yaml
 
 ROUTER_VM = "router"
 ROUTER_CONFIG = {
@@ -386,24 +386,19 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--config", help="Configuration of the infrastructure")
-    parser.add_argument("-o", "--output", help="Directory for generated logs")
-    parser.add_argument("-d", "--delete", help="Destroy VMs")
+    parser.add_argument("-c", "--config", help="Configuration of the infrastr   ucture", required=True, type=argparse.FileType('r'))
+    parser.add_argument("-o", "--output", help="Directory for generated logs", default="logs")
+    parser.add_argument("-d", "--delete", help="Destroy VMs", action="store_true")
     args = parser.parse_args()
 
-    if args.config is None:
-        parser.print_help()
+    output_dir = Path(args.output)
+    if not output_dir.exists():
+        output_dir.mkdir()
+    elif not output_dir.is_dir():
+        print(f"{output_dir} is not a directory")
         sys.exit(1)
 
-    if not os.path.exists(args.config):
-        print(f"{args.config} does not exist")
-        sys.exit(1)
-
-    if not os.path.exists(args.output) or not os.path.isdir(args.output):
-        print(f"{args.output} does not exist or not a directory")
-        sys.exit(1)
-
-    with open(args.config, "r") as f:
+    with args.config as f:
         infrastructure = yaml.safe_load(f)
     
     infrastructure = verify_infrastructure_config(infrastructure, args.config)
@@ -432,4 +427,5 @@ def main():
 
     run_exploit(vms, infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
 
-main()
+if __name__ == "__main__":
+    main()
