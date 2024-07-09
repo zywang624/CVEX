@@ -170,6 +170,7 @@ class VM:
         output = b""
         p = subprocess.Popen(command,stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
         for line in iter(p.stdout.readline, b''):
+            print(line)
             output += line.rstrip()
         return output
 
@@ -223,6 +224,7 @@ class VM:
         print(f"Inventory '{inventory}' has been created for VM '{self.vm_name}'")
         print(f"Executing Ansible playbook '{self.playbook}' for '{self.vm_name}'...")
         #ansible_playbook_runner.Runner([inventory], self.playbook).run()
+        self._run_shell_command(["ansible-playbook", "-i", inventory, self.playbook])
         print("Done")
 
     def _init_vm(self):
@@ -248,6 +250,7 @@ class VM:
         self.vag.snapshot_save(INIT_SNAPSHOT)
         print("Done")
         
+        self.ssh = SSH(self.vag)
         self._init_vm()
 
         print(f"Creating snapshot '{CVEX_SNAPSHOT}' for VM '{self.vm_name}' ({self.ip})...")
@@ -263,7 +266,6 @@ class VM:
         status = self.vag.status()
         if status[0].state == "not_created":
             self._create_vm()
-            self.ssh = SSH(self.vag)
         elif status[0].state != "running":
             snapshots = self.vag.snapshot_list()
             if CVEX_SNAPSHOT not in snapshots:
@@ -295,8 +297,16 @@ class VM:
                 print("Done")
 
     def destroy(self):
-        self.vag.destroy()
-        shutil.rmtree(self.destination)
+        print(f"Destroying VM '{self.vm_name}'...")
+        try:
+            self.vag.destroy()
+        except:
+            pass
+        print("Done")
+        try:
+            shutil.rmtree(self.destination)
+        except:
+            pass
 
 def _read_output(stdout):
     try:
@@ -329,16 +339,15 @@ def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
             if vm_name == ROUTER_VM:
                 continue
             if vm.vm_type == "windows":
-                vm.ssh.run_command("route DELETE 0.0.0.0")
-                vm.ssh.run_command("route DELETE 192.168.56.0")
-                vm.ssh.run_command(f"route DELETE {vm.ip}")
-                vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {vms[ROUTER_VM].ip} if 7")
+                pass
+                #vm.ssh.run_command("route DELETE 192.168.56.0")
+                #vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {vms[ROUTER_VM].ip} if 7")
             elif vm.vm_type == "linux":
                 # TODO
                 pass
 
-    for vm in vms:
-        command = command.replace(f"%{vm.vm_name}%", vm.ip)
+    for vm_name, vm in vms.items():
+        command = command.replace(f"%{vm_name}%", vm.ip)
     vms[attacker_vm].ssh.run_command(command)
 
     if ROUTER_VM in vms:
@@ -388,7 +397,7 @@ def main():
     )
     parser.add_argument("-c", "--config", help="Configuration of the infrastructure")
     parser.add_argument("-o", "--output", help="Directory for generated logs")
-    parser.add_argument("-d", "--delete", help="Destroy VMs")
+    parser.add_argument("-d", "--delete", help="Destroy VMs", default=False, action="store_true")
     args = parser.parse_args()
 
     if args.config is None:
@@ -397,10 +406,6 @@ def main():
 
     if not os.path.exists(args.config):
         print(f"{args.config} does not exist")
-        sys.exit(1)
-
-    if not os.path.exists(args.output) or not os.path.isdir(args.output):
-        print(f"{args.output} does not exist or not a directory")
         sys.exit(1)
 
     with open(args.config, "r") as f:
@@ -412,10 +417,18 @@ def main():
         sys.exit(1)
 
     if args.delete:
+        if len(infrastructure['vms']) > 1:
+            ROUTER_CONFIG['destination'] = os.path.abspath(os.path.expanduser(ROUTER_CONFIG['destination']))
+            vm = VM(ROUTER_VM, ROUTER_CONFIG)
+            vm.destroy()
         for vm_name, config in infrastructure['vms'].items():
             vm = VM(vm_name, config)
             vm.destroy()
         sys.exit(0)
+
+    if not os.path.exists(args.output) or not os.path.isdir(args.output):
+        print(f"{args.output} does not exist or not a directory")
+        sys.exit(1)
 
     vms = {}
     if len(infrastructure['vms']) > 1:
@@ -424,8 +437,8 @@ def main():
         vm.run_vm()
         vms[ROUTER_VM] = vm
     for vm_name, config in infrastructure['vms'].items():
-        if vm_name != "windows":
-            continue
+        #if vm_name != "windows":
+        #    continue
         vm = VM(vm_name, config)
         vm.run_vm()
         vms[vm_name] = vm
