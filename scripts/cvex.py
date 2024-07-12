@@ -1,16 +1,18 @@
-import vagrant
 import argparse
-import threading
 import os
-import time
-import paramiko
-import signal
-import yaml
-import sys
-import ansible_playbook_runner
+import io
 import re
 import shutil
+import signal
 import subprocess
+import sys
+import threading
+from pathlib import Path
+import paramiko
+import fabric
+import vagrant
+import yaml
+import time
 
 ROUTER_VM = "router"
 ROUTER_CONFIG = {
@@ -31,62 +33,54 @@ TCPDUMP_LOG = "raw.pcap"
 TCPDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{TCPDUMP_LOG}"
 
 class SSH:
-    ssh: paramiko.client.SSHClient
+    ssh: fabric.Connection
 
     def __init__(self, vm: vagrant.Vagrant):
         self.ssh = self._ssh_connect(vm)
 
-    def _ssh_connect(self, vm: vagrant.Vagrant) -> paramiko.client.SSHClient:
-        client = paramiko.client.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        print(f"Retrieving SSH configuration of VM...")
+    def _ssh_connect(self, vm: vagrant.Vagrant) -> fabric.Connection:
+        print(f"Retrieving SSH configuration...")
         hostname=vm.hostname()
         port=vm.port()
         username=vm.user()
         key_filename=vm.keyfile()
         print("Done")
         print(f"Connecting to {hostname}:{port} over SSH...")
-        client.connect(hostname=hostname, port=port, username=username, key_filename=key_filename)
+        client = fabric.Connection(
+            host=hostname, port=port, user=username, connect_kwargs={'key_filename': key_filename})
         print("Done")
         return client
 
-    def send_ctrl_c(self, stdin):
+    def send_ctrl_c(self, runner: fabric.runners.Remote):
         message = paramiko.Message()
         message.add_byte(paramiko.common.cMSG_CHANNEL_REQUEST)
-        message.add_int(stdin.channel.remote_chanid)
+        message.add_int(runner.channel.remote_chanid)
         message.add_string("signal")
         message.add_boolean(False)
         message.add_string(signal.Signals.SIGTERM.name[3:])
-        stdin.channel.transport._send_user_message(message)
+        runner.channel.transport._send_user_message(message)
 
-    def read_output(self, stdout):
-        output = ""
-        for line in stdout:
-            output += line
-            print(line)
-        return output
-
-    def run_command(self, command: str, get_stds: bool = False) -> str | tuple:
+    def run_command(self, command: str, is_async: bool = False, until: str = "") -> str | tuple:
         print(f"Executing '{command}'...")
-        stdin, stdout, _ = self.ssh.exec_command(command, get_pty=True)
-        if get_stds:
-            return (stdin, stdout)
+        if is_async:
+            result = self.ssh.run(command, asynchronous=is_async)
+            if until:
+                while not any(until in text for text in result.runner.stdout):
+                    time.sleep(0.1)
+            return result.runner
         else:
-            output = self.read_output(stdout)
-            stdout.channel.close()
-            stdin.channel.close()
-            return output
+            result = self.ssh.run(command)
+            print(result.stdout)
+            return result.stdout
 
-    def upload_file(self, src: str, dst: str):
-        print(f"Uploading '{dst}'...")
-        with self.ssh.open_sftp() as sftp:
-            sftp.put(src, dst)
+    def upload_file(self, local: str, dest: str):
+        print(f"Uploading '{dest}'...")
+        self.ssh.put(local, dest)
         print("Done")
 
-    def download_file(self, src: str, dst: str):
-        print(f"Downloading '{dst}'...")
-        with self.ssh.open_sftp() as sftp:
-            sftp.get(src, dst)
+    def download_file(self, local: str, dest: str):
+        print(f"Downloading '{dest}'...")
+        self.ssh.get(dest, local)
         print("Done")
 
 
@@ -174,7 +168,7 @@ class VM:
             output += line.rstrip()
         return output
 
-    def _get_vagrant_winrm_config(self):
+    def _get_vagrant_winrm_config(self) -> dict:
         output = self._run_shell_command(["vagrant", "winrm-config"], cwd=self.destination)
         values = {
             "host" : rb"HostName (\d+\.\d+\.\d+\.\d+)",
@@ -233,16 +227,16 @@ class VM:
             self._init_router()
 
     def _create_vm(self):
-        print(f"Pulling a new VM '{self.vm_name}' in '{self.destination}'...")
+        print(f"Initializing a new VM '{self.vm_name}' at '{self.destination}'...")
         self.vag.init(box_url=self.image)
         print("Done")
         self.ip = self._generate_new_ip()
         self._configure_vagrantfile()
-        print(f"Starting VM '{self.vm_name}'...")
+        print(f"Pulling the VM '{self.vm_name}'...")
         try:
             self.vag.up()
         except:
-            print(f"VM '{self.vm_name}' timed out. Please wait until the VM is started and re-start cvex.")
+            print(f"VM '{self.vm_name}' timed out. Please wait until the VM is started and then re-start CVEX.")
             sys.exit(1)
         print("Done")
         
@@ -300,48 +294,66 @@ class VM:
         print(f"Destroying VM '{self.vm_name}'...")
         try:
             self.vag.destroy()
+            print("Done")
+            try:
+                shutil.rmtree(self.destination)
+            except:
+                pass
         except:
-            pass
-        print("Done")
-        try:
-            shutil.rmtree(self.destination)
-        except:
-            pass
+            print("Failed")
 
-def _read_output(stdout):
+def _read_output(runner: fabric.runners.Remote):
     try:
-        for line in stdout:
-            print(line)
+        stdouts = 0
+        while True:
+            new_stdouts = len(runner.stdout)
+            if new_stdouts > stdouts:
+                for i in range(stdouts, new_stdouts):
+                    print(runner.stdout[i])
+            stdouts = new_stdouts
+            time.sleep(0.1)
     except:
         return
 
 def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
-    mitmdump_stds = None
-    tcpdump_stds = None
+    mitmdump_runner = None
+    tcpdump_runner = None
     mitmdump_thread = None
     tcpdump_thread = None
 
     if ROUTER_VM in vms:
+        try:
+            vms[ROUTER_VM].ssh.run_command("pkill mitmdump")
+        except:
+            pass
+        try:
+            vms[ROUTER_VM].ssh.run_command("pkill tcpdump")
+        except:
+            pass
+        try:
+            vms[ROUTER_VM].ssh.run_command(f"rm -rf {CVEX_TEMP_FOLDER_LINUX}")
+        except:
+            pass
         vms[ROUTER_VM].ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
         vms[ROUTER_VM].ssh.run_command("sudo sysctl net.ipv4.ip_forward=1")
         vms[ROUTER_VM].ssh.run_command("sudo iptables -t nat -I PREROUTING --src 0/0 --dst 0/0 -p tcp --dport 443 -j REDIRECT --to-ports 8080")
         
-        mitmdump_stds = vms[ROUTER_VM].ssh.run_command(
-            f"mitmdump --mode transparent -k --set block_global=false -w {MITMDUMP_LOG_PATH}", True)
-        tcpdump_stds = vms[ROUTER_VM].ssh.run_command(
-            f"sudo tcpdump -i eth1 -w {TCPDUMP_LOG_PATH}", True)
-        mitmdump_thread = threading.Thread(target=_read_output, args=[mitmdump_stds[1]])
+        tcpdump_runner = vms[ROUTER_VM].ssh.run_command(
+            f"sudo tcpdump -i eth1 -w {TCPDUMP_LOG_PATH}", is_async=True)
+        mitmdump_runner = vms[ROUTER_VM].ssh.run_command(
+            f"mitmdump --mode transparent -k --set block_global=false -w {MITMDUMP_LOG_PATH}",
+            is_async=True, until="Transparent Proxy listening at")
+        mitmdump_thread = threading.Thread(target=_read_output, args=[mitmdump_runner])
         mitmdump_thread.start()
-        tcpdump_thread = threading.Thread(target=_read_output, args=[tcpdump_stds[1]])
+        tcpdump_thread = threading.Thread(target=_read_output, args=[tcpdump_runner])
         tcpdump_thread.start()
 
         for vm_name, vm in vms.items():
             if vm_name == ROUTER_VM:
                 continue
             if vm.vm_type == "windows":
-                pass
-                #vm.ssh.run_command("route DELETE 192.168.56.0")
-                #vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {vms[ROUTER_VM].ip} if 7")
+                vm.ssh.run_command("route DELETE 192.168.56.0")
+                vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {vms[ROUTER_VM].ip} if 7")
             elif vm.vm_type == "linux":
                 # TODO
                 pass
@@ -351,18 +363,13 @@ def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
     vms[attacker_vm].ssh.run_command(command)
 
     if ROUTER_VM in vms:
-        vms[ROUTER_VM].ssh.send_ctrl_c(mitmdump_stds[0])
-        mitmdump_stds[0].channel.close()
-        mitmdump_stds[1].channel.close()
-        vms[ROUTER_VM].ssh.send_ctrl_c(tcpdump_stds[0])
-        tcpdump_stds[0].channel.close()
-        tcpdump_stds[1].channel.close()
-        mitmdump_thread.join()
-        tcpdump_thread.join()
+        vms[ROUTER_VM].ssh.send_ctrl_c(mitmdump_runner)
+        vms[ROUTER_VM].ssh.send_ctrl_c(tcpdump_runner)
+        time.sleep(5)
 
-        vms[ROUTER_VM].ssh.download_file(TCPDUMP_LOG_PATH, f"{output_dir}/{TCPDUMP_LOG}")
+        vms[ROUTER_VM].ssh.download_file(f"{output_dir}/{TCPDUMP_LOG}", TCPDUMP_LOG_PATH)
         print(f"tcpdump log was stored to {output_dir}/{TCPDUMP_LOG}")
-        vms[ROUTER_VM].ssh.download_file(MITMDUMP_LOG_PATH, f"{output_dir}/{MITMDUMP_LOG}")
+        vms[ROUTER_VM].ssh.download_file(f"{output_dir}/{MITMDUMP_LOG}", MITMDUMP_LOG_PATH)
         print(f"mitmdump log was stored to {output_dir}/{MITMDUMP_LOG}")
 
 
@@ -395,28 +402,27 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--config", help="Configuration of the infrastructure")
-    parser.add_argument("-o", "--output", help="Directory for generated logs")
-    parser.add_argument("-d", "--delete", help="Destroy VMs", default=False, action="store_true")
+    parser.add_argument("-c", "--config", help="Configuration of the infrastructure", required=True, type=argparse.FileType('r'))
+    parser.add_argument("-o", "--output", help="Directory for generated logs", default="logs")
+    parser.add_argument("-d", "--destroy", help="Destroy VMs", default=False, action="store_true")
     args = parser.parse_args()
 
-    if args.config is None:
-        parser.print_help()
+    output_dir = Path(args.output)
+    if not output_dir.exists():
+        output_dir.mkdir()
+    elif not output_dir.is_dir():
+        print(f"{output_dir} is not a directory")
         sys.exit(1)
 
-    if not os.path.exists(args.config):
-        print(f"{args.config} does not exist")
-        sys.exit(1)
-
-    with open(args.config, "r") as f:
+    with args.config as f:
         infrastructure = yaml.safe_load(f)
     
-    infrastructure = verify_infrastructure_config(infrastructure, args.config)
+    infrastructure = verify_infrastructure_config(infrastructure, args.config.name)
     if not infrastructure:
         print("Configuration mismatch")
         sys.exit(1)
 
-    if args.delete:
+    if args.destroy:
         if len(infrastructure['vms']) > 1:
             ROUTER_CONFIG['destination'] = os.path.abspath(os.path.expanduser(ROUTER_CONFIG['destination']))
             vm = VM(ROUTER_VM, ROUTER_CONFIG)
@@ -426,10 +432,6 @@ def main():
             vm.destroy()
         sys.exit(0)
 
-    if not os.path.exists(args.output) or not os.path.isdir(args.output):
-        print(f"{args.output} does not exist or not a directory")
-        sys.exit(1)
-
     vms = {}
     if len(infrastructure['vms']) > 1:
         ROUTER_CONFIG['destination'] = os.path.abspath(os.path.expanduser(ROUTER_CONFIG['destination']))
@@ -437,12 +439,12 @@ def main():
         vm.run_vm()
         vms[ROUTER_VM] = vm
     for vm_name, config in infrastructure['vms'].items():
-        #if vm_name != "windows":
-        #    continue
         vm = VM(vm_name, config)
         vm.run_vm()
         vms[vm_name] = vm
 
     run_exploit(vms, infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
+    sys.exit(0)
 
-main()
+if __name__ == "__main__":
+    main()
