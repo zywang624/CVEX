@@ -182,7 +182,7 @@ class VM:
             if not r:
                 print(f"'vagrant winrm-config' returned unusual output: {output}")
                 sys.exit(1)
-            config[key] = r.group(1)
+            config[key] = r.group(1).decode()
         return config
 
     def _run_ansible(self):
@@ -221,18 +221,20 @@ class VM:
         self._run_shell_command(["ansible-playbook", "-i", inventory, self.playbook])
         print("Done")
 
-    def _init_vm(self):
+    def _provision_vm(self):
         self._run_ansible()
         if self.vm_name == ROUTER_VM:
             self._init_router()
 
-    def _create_vm(self):
+    def _init_vm(self):
         print(f"Initializing a new VM '{self.vm_name}' at '{self.destination}'...")
         self.vag.init(box_url=self.image)
         print("Done")
         self.ip = self._generate_new_ip()
         self._configure_vagrantfile()
-        print(f"Pulling the VM '{self.vm_name}'...")
+
+    def _start_vm(self):
+        print(f"Starting the VM '{self.vm_name}'...")
         try:
             self.vag.up()
         except:
@@ -245,7 +247,7 @@ class VM:
         print("Done")
         
         self.ssh = SSH(self.vag)
-        self._init_vm()
+        self._provision_vm()
 
         print(f"Creating snapshot '{CVEX_SNAPSHOT}' for VM '{self.vm_name}' ({self.ip})...")
         self.vag.snapshot_save(CVEX_SNAPSHOT)
@@ -254,23 +256,17 @@ class VM:
     def run_vm(self):
         if not os.path.exists(self.destination):
             os.makedirs(self.destination)
-            self._create_vm()
+            self._init_vm()
+            self._start_vm()
             return
+        
         print(f"Retrieving status of '{self.vm_name}'...")
         status = self.vag.status()
+ 
         if status[0].state == "not_created":
-            self._create_vm()
-        elif status[0].state != "running":
-            snapshots = self.vag.snapshot_list()
-            if CVEX_SNAPSHOT not in snapshots:
-                print("Configuration mismatch, please try from scratch")
-                sys.exit(1)
-            self.ip = self._read_ip()
-            print(f"Restoring VM '{self.vm_name}' ({self.ip}) to snapshot '{CVEX_SNAPSHOT}'...")
-            self.vag.snapshot_restore(CVEX_SNAPSHOT)
-            print("Done")
-            self.ssh = SSH(self.vag)
-        else:
+            self._init_vm()
+            self._start_vm()
+        elif status[0].state == "running":
             self.ip = self._read_ip()
             print(f"VM '{self.vm_name}' ({self.ip}) is already running")
             self.ssh = SSH(self.vag)
@@ -285,10 +281,23 @@ class VM:
                 print("Done")
 
             if CVEX_SNAPSHOT not in snapshots:
-                self._init_vm()
+                self._provision_vm()
                 print(f"Creating snapshot '{CVEX_SNAPSHOT}' for VM '{self.vm_name}' ({self.ip})...")
                 self.vag.snapshot_save(CVEX_SNAPSHOT)
                 print("Done")
+        else:
+            print(f"Retrieving snapshot list of '{self.vm_name}'...")
+            snapshots = self.vag.snapshot_list()
+            print("Done")
+
+            if CVEX_SNAPSHOT in snapshots:
+                self.ip = self._read_ip()
+                print(f"Restoring VM '{self.vm_name}' ({self.ip}) to snapshot '{CVEX_SNAPSHOT}'...")
+                self.vag.snapshot_restore(CVEX_SNAPSHOT)
+                print("Done")
+                self.ssh = SSH(self.vag)
+            else:
+                self._start_vm()
 
     def destroy(self):
         print(f"Destroying VM '{self.vm_name}'...")
@@ -302,10 +311,20 @@ class VM:
         except:
             print("Failed")
 
+    def stop(self):
+        print(f"Stopping VM '{self.vm_name}'...")
+        try:
+            self.vag.halt()
+            print("Done")
+        except:
+            print("Failed")
+
 def _read_output(runner: fabric.runners.Remote):
     try:
         stdouts = 0
         while True:
+            if runner.program_finished.is_set():
+                return
             new_stdouts = len(runner.stdout)
             if new_stdouts > stdouts:
                 for i in range(stdouts, new_stdouts):
@@ -314,6 +333,14 @@ def _read_output(runner: fabric.runners.Remote):
             time.sleep(0.1)
     except:
         return
+
+def _get_windows_private_network_interface_index(vm: VM):
+    route_print = vm.ssh.run_command("route print")
+    id = re.search(r"(\d+)\.\.\.([0-9a-fA-F]{2} ){6}\.\.\.\.\.\.Intel\(R\) PRO/1000 MT Desktop Adapter #2", route_print)
+    if not id:
+        print(f"'route print' returned unknown data:\n{route_print}")
+        sys.exit(1)
+    return id.group(1)
 
 def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
     mitmdump_runner = None
@@ -327,7 +354,7 @@ def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
         except:
             pass
         try:
-            vms[ROUTER_VM].ssh.run_command("pkill tcpdump")
+            vms[ROUTER_VM].ssh.run_command("sudo pkill tcpdump")
         except:
             pass
         try:
@@ -337,9 +364,8 @@ def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
         vms[ROUTER_VM].ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
         vms[ROUTER_VM].ssh.run_command("sudo sysctl net.ipv4.ip_forward=1")
         vms[ROUTER_VM].ssh.run_command("sudo iptables -t nat -I PREROUTING --src 0/0 --dst 0/0 -p tcp --dport 443 -j REDIRECT --to-ports 8080")
-        
         tcpdump_runner = vms[ROUTER_VM].ssh.run_command(
-            f"sudo tcpdump -i eth1 -w {TCPDUMP_LOG_PATH}", is_async=True)
+            f"sudo tcpdump -i eth1 -U -w {TCPDUMP_LOG_PATH}", is_async=True)
         mitmdump_runner = vms[ROUTER_VM].ssh.run_command(
             f"mitmdump --mode transparent -k --set block_global=false -w {MITMDUMP_LOG_PATH}",
             is_async=True, until="Transparent Proxy listening at")
@@ -353,7 +379,8 @@ def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
                 continue
             if vm.vm_type == "windows":
                 vm.ssh.run_command("route DELETE 192.168.56.0")
-                vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {vms[ROUTER_VM].ip} if 7")
+                id = _get_windows_private_network_interface_index(vm)
+                vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {vms[ROUTER_VM].ip} if {id}")
             elif vm.vm_type == "linux":
                 # TODO
                 pass
@@ -363,9 +390,10 @@ def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
     vms[attacker_vm].ssh.run_command(command)
 
     if ROUTER_VM in vms:
+        print("Wait for 10 seconds to let tcpdump flush log on disk...")
+        time.sleep(5)
         vms[ROUTER_VM].ssh.send_ctrl_c(mitmdump_runner)
         vms[ROUTER_VM].ssh.send_ctrl_c(tcpdump_runner)
-        time.sleep(5)
 
         vms[ROUTER_VM].ssh.download_file(f"{output_dir}/{TCPDUMP_LOG}", TCPDUMP_LOG_PATH)
         print(f"tcpdump log was stored to {output_dir}/{TCPDUMP_LOG}")
@@ -433,6 +461,7 @@ def main():
         sys.exit(0)
 
     vms = {}
+
     if len(infrastructure['vms']) > 1:
         ROUTER_CONFIG['destination'] = os.path.abspath(os.path.expanduser(ROUTER_CONFIG['destination']))
         vm = VM(ROUTER_VM, ROUTER_CONFIG)
@@ -444,6 +473,10 @@ def main():
         vms[vm_name] = vm
 
     run_exploit(vms, infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
+
+    #for vm_name, vm in vms.items():
+    #    vm.stop()
+
     sys.exit(0)
 
 if __name__ == "__main__":
