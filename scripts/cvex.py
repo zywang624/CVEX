@@ -13,6 +13,7 @@ import fabric
 import vagrant
 import yaml
 import time
+import logging
 
 ROUTER_VM = "router"
 ROUTER_CONFIG = {
@@ -27,15 +28,29 @@ CVEX_SNAPSHOT = "cvex"
 CVEX_TEMP_FOLDER_LINUX = "/tmp/cvex"
 CVEX_TEMP_FOLDER_WINDOWS = "cvex"
 
-MITMDUMP_LOG = "mitmdump.stream"
+MITMDUMP_LOG = "router_mitmdump.stream"
 MITMDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{MITMDUMP_LOG}"
-TCPDUMP_LOG = "raw.pcap"
+TCPDUMP_LOG = "router_raw.pcap"
 TCPDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{TCPDUMP_LOG}"
 
+
+def get_logger(name: str) -> logging.Logger:
+    log = logging.getLogger(name)
+    if log.hasHandlers():
+        return log
+
+    console_log_handler = logging.StreamHandler()
+    console_log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - [%(name)s] %(message)s"))
+    log.addHandler(console_log_handler)
+    return log
+
+
 class SSH:
+    log: logging.Logger
     ssh: fabric.Connection
 
     def __init__(self, vm: vagrant.Vagrant):
+        self.log = get_logger("SSH")
         self.ssh = self._ssh_connect(vm)
 
     def _ssh_connect(self, vm: vagrant.Vagrant) -> fabric.Connection:
@@ -65,7 +80,8 @@ class SSH:
         if is_async:
             result = self.ssh.run(command, asynchronous=is_async)
             if until:
-                while not any(until in text for text in result.runner.stdout):
+                while (not any(until in text for text in result.runner.stdout) and
+                       not any(until in text for text in result.runner.stderr)):
                     time.sleep(0.1)
             return result.runner
         else:
@@ -87,17 +103,20 @@ class SSH:
 private_ip = 1
 
 class VM:
+    log: logging.Logger
     vag: vagrant.Vagrant
     vm_name: str
     image: str
     destination: str
     vm_type: str
     playbook: str
+    trace: str
     files: dict
     ip: str
     ssh: SSH
 
     def __init__(self, vm_name: str, config: dict):
+        self.log = get_logger("VM")
         self.vag = vagrant.Vagrant(config['destination'])
         self.vm_name = vm_name
         self.image = config['image']
@@ -107,6 +126,10 @@ class VM:
             self.playbook = config['playbook']
         else:
             self.playbook = None
+        if 'trace' in config:
+            self.trace = config['trace']
+        else:
+            self.trace = None
         self.ip = None
     
     def _configure_vagrantfile(self):
@@ -319,86 +342,156 @@ class VM:
         except:
             print("Failed")
 
-def _read_output(runner: fabric.runners.Remote):
-    try:
-        stdouts = 0
-        while True:
-            if runner.program_finished.is_set():
-                return
-            new_stdouts = len(runner.stdout)
-            if new_stdouts > stdouts:
-                for i in range(stdouts, new_stdouts):
-                    print(runner.stdout[i])
-            stdouts = new_stdouts
-            time.sleep(0.1)
-    except:
-        return
 
-def _get_windows_private_network_interface_index(vm: VM):
-    route_print = vm.ssh.run_command("route print")
-    id = re.search(r"(\d+)\.\.\.([0-9a-fA-F]{2} ){6}\.\.\.\.\.\.Intel\(R\) PRO/1000 MT Desktop Adapter #2", route_print)
-    if not id:
-        print(f"'route print' returned unknown data:\n{route_print}")
-        sys.exit(1)
-    return id.group(1)
+class Exploit:
+    log: logging.Logger
+    vms: dict
 
-def run_exploit(vms: dict, attacker_vm: str, command: str, output_dir: str):
-    mitmdump_runner = None
-    tcpdump_runner = None
-    mitmdump_thread = None
-    tcpdump_thread = None
+    def __init__(self, vms: dict):
+        self.log = get_logger("SSH")
+        self.vms = vms
 
-    if ROUTER_VM in vms:
+    def _read_output(self, runner: fabric.runners.Remote):
         try:
-            vms[ROUTER_VM].ssh.run_command("pkill mitmdump")
+            stdouts = 0
+            while True:
+                if runner.program_finished.is_set():
+                    return
+                new_stdouts = len(runner.stdout)
+                if new_stdouts > stdouts:
+                    for i in range(stdouts, new_stdouts):
+                        print(runner.stdout[i])
+                stdouts = new_stdouts
+                time.sleep(0.1)
+        except:
+            return
+
+    def _get_windows_private_network_interface_index(self, vm: VM):
+        route_print = vm.ssh.run_command("route print")
+        id = re.search(r"(\d+)\.\.\.([0-9a-fA-F]{2} ){6}\.\.\.\.\.\.Intel\(R\) PRO/1000 MT Desktop Adapter #2", route_print)
+        if not id:
+            print(f"'route print' returned unknown data:\n{route_print}")
+            sys.exit(1)
+        return id.group(1)
+
+    def _start_router_sniffing(self):
+        if ROUTER_VM not in self.vms:
+            return
+        router = self.vms[ROUTER_VM]
+        try:
+            router.ssh.run_command("pkill mitmdump")
         except:
             pass
         try:
-            vms[ROUTER_VM].ssh.run_command("sudo pkill tcpdump")
+            router.ssh.run_command("sudo pkill tcpdump")
         except:
             pass
         try:
-            vms[ROUTER_VM].ssh.run_command(f"rm -rf {CVEX_TEMP_FOLDER_LINUX}")
+            router.ssh.run_command(f"rm -rf {CVEX_TEMP_FOLDER_LINUX}")
         except:
             pass
-        vms[ROUTER_VM].ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
-        vms[ROUTER_VM].ssh.run_command("sudo sysctl net.ipv4.ip_forward=1")
-        vms[ROUTER_VM].ssh.run_command("sudo iptables -t nat -I PREROUTING --src 0/0 --dst 0/0 -p tcp --dport 443 -j REDIRECT --to-ports 8080")
-        tcpdump_runner = vms[ROUTER_VM].ssh.run_command(
+        router.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
+        router.ssh.run_command("sudo sysctl net.ipv4.ip_forward=1")
+        router.ssh.run_command("sudo iptables -t nat -I PREROUTING --src 0/0 --dst 0/0 -p tcp --dport 443 -j REDIRECT --to-ports 8080")
+        self.tcpdump_runner = router.ssh.run_command(
             f"sudo tcpdump -i eth1 -U -w {TCPDUMP_LOG_PATH}", is_async=True)
-        mitmdump_runner = vms[ROUTER_VM].ssh.run_command(
+        self.mitmdump_runner = router.ssh.run_command(
             f"mitmdump --mode transparent -k --set block_global=false -w {MITMDUMP_LOG_PATH}",
             is_async=True, until="Transparent Proxy listening at")
-        mitmdump_thread = threading.Thread(target=_read_output, args=[mitmdump_runner])
-        mitmdump_thread.start()
-        tcpdump_thread = threading.Thread(target=_read_output, args=[tcpdump_runner])
-        tcpdump_thread.start()
+        self.mitmdump_thread = threading.Thread(target=self._read_output, args=[self.mitmdump_runner])
+        self.mitmdump_thread.start()
+        self.tcpdump_thread = threading.Thread(target=self._read_output, args=[self.tcpdump_runner])
+        self.tcpdump_thread.start()
 
-        for vm_name, vm in vms.items():
+        for vm_name, vm in self.vms.items():
             if vm_name == ROUTER_VM:
                 continue
             if vm.vm_type == "windows":
                 vm.ssh.run_command("route DELETE 192.168.56.0")
-                id = _get_windows_private_network_interface_index(vm)
-                vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {vms[ROUTER_VM].ip} if {id}")
+                id = self._get_windows_private_network_interface_index(vm)
+                vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {self.vms[ROUTER_VM].ip} if {id}")
             elif vm.vm_type == "linux":
                 # TODO
                 pass
 
-    for vm_name, vm in vms.items():
-        command = command.replace(f"%{vm_name}%", vm.ip)
-    vms[attacker_vm].ssh.run_command(command)
+    def _stop_router_sniffing(self, output_dir: str):
+        if ROUTER_VM not in self.vms:
+            return
+        router = self.vms[ROUTER_VM]
 
-    if ROUTER_VM in vms:
-        print("Wait for 10 seconds to let tcpdump flush log on disk...")
+        print("Wait for 5 seconds to let tcpdump flush log on disk...")
         time.sleep(5)
-        vms[ROUTER_VM].ssh.send_ctrl_c(mitmdump_runner)
-        vms[ROUTER_VM].ssh.send_ctrl_c(tcpdump_runner)
+        router.ssh.send_ctrl_c(self.mitmdump_runner)
+        router.ssh.send_ctrl_c(self.tcpdump_runner)
 
-        vms[ROUTER_VM].ssh.download_file(f"{output_dir}/{TCPDUMP_LOG}", TCPDUMP_LOG_PATH)
+        router.ssh.download_file(f"{output_dir}/{TCPDUMP_LOG}", TCPDUMP_LOG_PATH)
         print(f"tcpdump log was stored to {output_dir}/{TCPDUMP_LOG}")
-        vms[ROUTER_VM].ssh.download_file(f"{output_dir}/{MITMDUMP_LOG}", MITMDUMP_LOG_PATH)
+        router.ssh.download_file(f"{output_dir}/{MITMDUMP_LOG}", MITMDUMP_LOG_PATH)
         print(f"mitmdump log was stored to {output_dir}/{MITMDUMP_LOG}")
+
+    def _start_windows_api_tracing(self, vm: VM):
+        return
+
+    def _stop_windows_api_tracing(self, vm: VM, output_dir: str):
+        return
+
+    def _start_linux_api_tracing(self, vm: VM):
+        vm.strace = {}
+        try:
+            vm.ssh.run_command("sudo pkill strace")
+        except:
+            pass
+        try:
+            vm.ssh.run_command(f"rm -rf {CVEX_TEMP_FOLDER_LINUX}")
+        except:
+            pass
+        vm.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
+        procs = vm.ssh.run_command(f"ps -ax | egrep \"{vm.trace}\" | grep -v grep")
+        if procs:
+            for pid, proc in re.findall(rf"(\d+).+? ({vm.trace})", procs):
+                log = f"{CVEX_TEMP_FOLDER_LINUX}/{vm.vm_name}_strace_{proc}_{pid}.log"
+                if log not in vm.strace:
+                    runner = vm.ssh.run_command(f"sudo strace -p {pid} -o {log}", is_async=True, until="attached")
+                    vm.strace[log] = runner
+
+    def _stop_linux_api_tracing(self, vm: VM, output_dir: str):
+        for _, runner in vm.strace.items():
+            vm.ssh.send_ctrl_c(runner)
+        for log, _ in vm.strace.items():
+            out = f"{output_dir}/{log[len(CVEX_TEMP_FOLDER_LINUX)+1:]}"
+            vm.ssh.download_file(out, log)
+            print(f"strace log was stored to {out}")
+
+    def _start_api_tracing(self):
+        for vm_name, vm in self.vms.items():
+            if vm.trace:
+                if vm.vm_type == "windows":
+                    self._start_windows_api_tracing(vm)
+                elif vm.vm_type == "linux":
+                    self._start_linux_api_tracing(vm)
+
+    def _stop_api_tracing(self, output_dir: str):
+        for vm_name, vm in self.vms.items():
+            if vm.trace:
+                if vm.vm_type == "windows":
+                    self._stop_windows_api_tracing(vm, output_dir)
+                elif vm.vm_type == "linux":
+                    self._stop_linux_api_tracing(vm, output_dir)
+
+    def _get_command(self, command_template: str):
+        command = command_template
+        for vm_name, vm in self.vms.items():
+            command = command.replace(f"%{vm_name}%", vm.ip)
+        return command
+
+    def run(self, attacker_vm: str, command: str, output_dir: str):
+        self._start_router_sniffing()
+        self._start_api_tracing()
+
+        self.vms[attacker_vm].ssh.run_command(self._get_command(command))
+
+        self._stop_router_sniffing(output_dir)
+        self._stop_api_tracing(output_dir)
 
 
 def verify_infrastructure_config(config: dict, config_path: str) -> dict | None:
@@ -433,6 +526,7 @@ def main():
     parser.add_argument("-c", "--config", help="Configuration of the infrastructure", required=True, type=argparse.FileType('r'))
     parser.add_argument("-o", "--output", help="Directory for generated logs", default="logs")
     parser.add_argument("-d", "--destroy", help="Destroy VMs", default=False, action="store_true")
+    parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")
     args = parser.parse_args()
 
     output_dir = Path(args.output)
@@ -472,7 +566,8 @@ def main():
         vm.run_vm()
         vms[vm_name] = vm
 
-    run_exploit(vms, infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
+    exploit = Exploit(vms)
+    exploit.run(infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
 
     #for vm_name, vm in vms.items():
     #    vm.stop()
