@@ -14,6 +14,9 @@ import vagrant
 import yaml
 import time
 import logging
+import procmon_parser
+import tempfile
+
 
 ROUTER_VM = "router"
 ROUTER_CONFIG = {
@@ -26,12 +29,17 @@ INIT_SNAPSHOT = "clean"
 CVEX_SNAPSHOT = "cvex"
 
 CVEX_TEMP_FOLDER_LINUX = "/tmp/cvex"
-CVEX_TEMP_FOLDER_WINDOWS = "cvex"
+CVEX_TEMP_FOLDER_WINDOWS = "C:\\cvex"
 
 MITMDUMP_LOG = "router_mitmdump.stream"
 MITMDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{MITMDUMP_LOG}"
 TCPDUMP_LOG = "router_raw.pcap"
 TCPDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{TCPDUMP_LOG}"
+PROCMON_PML_LOG = "procmon.pml"
+PROCMON_PML_LOG_PATH = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{PROCMON_PML_LOG}"
+PROCMON_XML_LOG = "procmon.xml"
+PROCMON_XML_LOG_PATH = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{PROCMON_XML_LOG}"
+
 
 log_level = logging.INFO
 
@@ -178,6 +186,11 @@ class VM:
         self.ssh.run_command("wget https://downloads.mitmproxy.org/10.3.1/mitmproxy-10.3.1-linux-x86_64.tar.gz")
         self.ssh.run_command("sudo tar -xf mitmproxy-10.3.1-linux-x86_64.tar.gz -C /usr/bin")
 
+    def _init_windows(self):
+        self.ssh.run_command("curl https://download.sysinternals.com/files/ProcessMonitor.zip -o ProcessMonitor.zip")
+        self.ssh.run_command("mkdir C:\\Tools")
+        self.ssh.run_command("tar -xf ProcessMonitor.zip -C C:\\Tools")
+
     def _run_shell_command(self, command: list[str], cwd: str | None = None) -> bytes:
         output = b""
         p = subprocess.Popen(command,stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
@@ -216,7 +229,7 @@ class VM:
                         f"ansible_host={config['host']} "
                         f"ansible_port={config['port']} "
                         f"ansible_user={config['user']} "
-                        f"ansible_password={config['password']}"
+                        f"ansible_password={config['password']} "
                         f"ansible_winrm_operation_timeout_sec=200  "
                         f"ansible_winrm_read_timeout_sec=210 "
                         f"operation_timeout_sec=250 "
@@ -239,6 +252,8 @@ class VM:
         self._run_ansible()
         if self.vm_name == ROUTER_VM:
             self._init_router()
+        elif self.vm_type == "windows":
+            self._init_windows()
 
     def _init_vm(self):
         self.log.info("Initializing a new VM %s at %s...", self.vm_name, self.destination)
@@ -336,7 +351,6 @@ class Exploit:
             stdouts = 0
             while True:
                 if runner.program_finished.is_set():
-                    self.log.info("DONE DONE DONE")
                     return
                 new_stdouts = len(runner.stdout)
                 if new_stdouts > stdouts:
@@ -402,24 +416,49 @@ class Exploit:
 
         self.log.info("Wait for 5 seconds to let tcpdump flush log on disk...")
         time.sleep(5)
-        # TODO: how to stop the processes?
-        #router.ssh.send_ctrl_c(router.mitmdump_runner)
-        #router.ssh.send_ctrl_c(router.tcpdump_runner)
+        router.ssh.send_ctrl_c(router.mitmdump_runner)
+        router.ssh.send_ctrl_c(router.tcpdump_runner)
         #router.mitmdump_thread.join()
         #router.tcpdump_thread.join()
 
         local = f"{output_dir}/{TCPDUMP_LOG}"
         router.ssh.download_file(local, TCPDUMP_LOG_PATH)
-        self.log.info("tcpdump log was stored to %s", local)
         local = f"{output_dir}/{MITMDUMP_LOG}"
         router.ssh.download_file(local, MITMDUMP_LOG_PATH)
-        self.log.info("mitmdump log was stored to %s", local)
 
     def _start_windows_api_tracing(self, vm: VM):
-        return
+        with open("procmon_basic_config.pmc", "rb") as f:
+            config = procmon_parser.load_configuration(f)
+        config["FilterRules"] = [
+        procmon_parser.Rule(
+            procmon_parser.Column.PROCESS_NAME,
+            procmon_parser.RuleRelation.CONTAINS,
+            vm.trace,
+            procmon_parser.RuleAction.INCLUDE)]
+        local_config = tempfile.NamedTemporaryFile()
+        with open(local_config.name, "wb") as f:
+            procmon_parser.dump_configuration(config, f)
+        try:
+            vm.ssh.run_command("taskkill /IM Procmon.exe /F")
+        except:
+            pass
+        try:
+            vm.ssh.run_command(f"rmdir /S /Q {CVEX_TEMP_FOLDER_WINDOWS}")
+        except:
+            pass
+        vm.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_WINDOWS}")
+
+        remote_config_path = f"{CVEX_TEMP_FOLDER_WINDOWS}\\config.pmc"
+        vm.ssh.upload_file(local_config.name, f"/{remote_config_path}")
+        vm.ssh.run_command(
+            f"C:\\Tools\\Procmon.exe /AcceptEula /BackingFile {PROCMON_PML_LOG_PATH} /LoadConfig {remote_config_path} /Quiet",
+            is_async=True)
 
     def _stop_windows_api_tracing(self, vm: VM, output_dir: str):
-        return
+        vm.ssh.run_command("C:\\Tools\\Procmon.exe /AcceptEula /Terminate")
+        vm.ssh.run_command(f"C:\Tools\Procmon.exe /AcceptEula /OpenLog {PROCMON_PML_LOG_PATH} /SaveAs {PROCMON_XML_LOG_PATH}")
+        vm.ssh.download_file(f"{output_dir}/{vm.vm_name}_{PROCMON_PML_LOG}", f"/{PROCMON_PML_LOG_PATH}")
+        vm.ssh.download_file(f"{output_dir}/{vm.vm_name}_{PROCMON_XML_LOG}", f"/{PROCMON_XML_LOG_PATH}")
 
     def _start_linux_api_tracing(self, vm: VM):
         vm.strace = {}
@@ -439,7 +478,7 @@ class Exploit:
         for pid, proc in re.findall(rf"(\d+).+? ({vm.trace})", procs):
             log = f"{CVEX_TEMP_FOLDER_LINUX}/{vm.vm_name}_strace_{proc}_{pid}.log"
             if log not in vm.strace:
-                runner = vm.ssh.run_command(f"sudo strace -p {pid} -o {log}", is_async=True, until="attached")
+                runner = vm.ssh.run_command(f"sudo strace -p {pid} -o {log} -v", is_async=True, until="attached")
                 vm.strace[log] = runner
 
     def _stop_linux_api_tracing(self, vm: VM, output_dir: str):
