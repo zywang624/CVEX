@@ -406,8 +406,8 @@ class Exploit:
                 id = self._get_windows_private_network_interface_index(vm)
                 vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {router.ip} if {id}")
             elif vm.vm_type == "linux":
-                # TODO
-                pass
+                vm.ssh.run_command("sudo ip route change 192.168.56.0/24 via 192.168.56.1 dev eth1")
+                vm.ssh.run_command("sudo systemctl restart ufw")
 
     def _stop_router_sniffing(self, output_dir: str):
         if ROUTER_VM not in self.vms:
