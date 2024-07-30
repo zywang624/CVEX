@@ -18,15 +18,17 @@ import procmon_parser
 import tempfile
 
 
+CVEX_ROOT = "~/.cvex"
+
 ROUTER_VM = "router"
+ROUTER_DESTINATION = f"{CVEX_ROOT}/{ROUTER_VM}"
 ROUTER_CONFIG = {
     "image" : "bento/ubuntu-22.04",
-    "destination" : "~/.cvex/router",
+    "version" : "202404.23.0",
     "type" : "linux"
 }
 
 INIT_SNAPSHOT = "clean"
-CVEX_SNAPSHOT = "cvex"
 
 CVEX_TEMP_FOLDER_LINUX = "/tmp/cvex"
 CVEX_TEMP_FOLDER_WINDOWS = "C:\\cvex"
@@ -111,6 +113,7 @@ private_ip = 1
 
 class VM:
     log: logging.Logger
+    cve: str
     vag: vagrant.Vagrant
     vm_name: str
     image: str
@@ -122,12 +125,21 @@ class VM:
     ip: str
     ssh: SSH
 
-    def __init__(self, vm_name: str, config: dict):
+    def _get_vm_destination(self, image: str, version: str):
+        path = "~/.cvex/" + image.replace("/", "_") + "/" + version
+        return os.path.abspath(os.path.expanduser(path))
+
+    def __init__(self, vm_name: str, config: dict, cve: str = "", destination: str = ""):
         self.log = get_logger(vm_name)
-        self.vag = vagrant.Vagrant(config['destination'])
-        self.vm_name = vm_name
+        self.cve = cve
         self.image = config['image']
-        self.destination = config['destination']
+        self.version = config['version']
+        if destination:
+            self.destination = destination
+        else:
+            self.destination = self._get_vm_destination(self.image, self.version)
+        self.vag = vagrant.Vagrant(self.destination)
+        self.vm_name = vm_name
         self.vm_type = config['type']
         if 'playbook' in config:
             self.playbook = config['playbook']
@@ -154,6 +166,7 @@ class VM:
         with open(vagrantfile, "w") as f:
             f.write(data[:pos + len(config)])
             f.write((f"\n"
+                     f"  config.vm.box_version = \"{self.version}\"\n"
                      f"  config.vm.network \"private_network\", ip: \"{self.ip}\"\n"
                      f"  config.vm.hostname = \"{self.vm_name}\"\n"
                      f"\n"
@@ -269,14 +282,14 @@ class VM:
             self.log.critical("VM %s timed out. Please wait until the VM is started and then re-start CVEX.", self.vm_name)
             sys.exit(1)
 
-        self.log.info("Creating snapshot %s for VM %s (%s)...", INIT_SNAPSHOT, self.vm_name, self.ip)
+        self.log.info("Creating snapshot '%s' for VM %s (%s)...", INIT_SNAPSHOT, self.vm_name, self.ip)
         self.vag.snapshot_save(INIT_SNAPSHOT)
 
         self.ssh = SSH(self.vag, self.vm_name)
         self._provision_vm()
 
-        self.log.info("Creating snapshot %s for VM %s (%s)...", CVEX_SNAPSHOT, self.vm_name, self.ip)
-        self.vag.snapshot_save(CVEX_SNAPSHOT)
+        self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
+        self.vag.snapshot_save(self.cve)
 
     def run_vm(self):
         if not os.path.exists(self.destination):
@@ -300,27 +313,36 @@ class VM:
             snapshots = self.vag.snapshot_list()
 
             if INIT_SNAPSHOT not in snapshots:
-                self.log.info("Creating snapshot %s for VM %s (%s)...", INIT_SNAPSHOT, self.vm_name, self.ip)
+                self.log.info("Creating snapshot '%s' for VM %s (%s)...", INIT_SNAPSHOT, self.vm_name, self.ip)
                 self.vag.snapshot_save(INIT_SNAPSHOT)
 
-            if CVEX_SNAPSHOT not in snapshots:
+            if self.cve not in snapshots:
                 self._provision_vm()
-                self.log.info("Creating snapshot %s for VM %s (%s)...", CVEX_SNAPSHOT, self.vm_name, self.ip)
-                self.vag.snapshot_save(CVEX_SNAPSHOT)
+                self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
+                self.vag.snapshot_save(self.cve)
         else:
             self.log.info("Retrieving snapshot list of %s...", self.vm_name)
             snapshots = self.vag.snapshot_list()
 
-            if CVEX_SNAPSHOT in snapshots:
+            if self.cve in snapshots:
                 self.ip = self._read_ip()
-                self.log.info("Restoring VM %s (%s) to snapshot %s...", self.vm_name, self.ip, CVEX_SNAPSHOT)
-                self.vag.snapshot_restore(CVEX_SNAPSHOT)
+                self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, self.cve)
+                self.vag.snapshot_restore(self.cve)
                 self.ssh = SSH(self.vag, self.vm_name)
+            elif INIT_SNAPSHOT in snapshots:
+                self.ip = self._read_ip()
+                self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, INIT_SNAPSHOT)
+                self.vag.snapshot_restore(INIT_SNAPSHOT)
+                self.ssh = SSH(self.vag, self.vm_name)
+
+                self._provision_vm()
+                self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
+                self.vag.snapshot_save(self.cve)
             else:
                 self._start_vm()
 
     def destroy(self):
-        self.log.info("Destroying VM %s...", self.vm_name)
+        self.log.info("Destroying VM %s...", self.image)
         try:
             self.vag.destroy()
             try:
@@ -522,15 +544,16 @@ class Exploit:
 
 
 def verify_infrastructure_config(config: dict, config_path: str) -> dict | None:
+    if 'cve' not in config:
+        return None
     config_dir = os.path.split(config_path)[0]
     if 'vms' not in config or not config['vms']:
         return None
     if ROUTER_VM in config['vms']:
         return None
     for vm_name, data in config['vms'].items():
-        if 'image' not in data or 'destination' not in data:
+        if 'image' not in data or 'version' not in data:
             return None
-        config['vms'][vm_name]['destination'] = os.path.join(config_dir, data['destination'])
         if 'type' not in data or data['type'] not in ["linux", "windows"]:
             return None
         if 'playbook' in data:
@@ -550,9 +573,10 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--config", help="Configuration of the infrastructure", required=True, type=argparse.FileType('r'))
+    parser.add_argument("-c", "--config", help="Configuration of the infrastructure", type=argparse.FileType('r'))
     parser.add_argument("-o", "--output", help="Directory for generated logs", default="logs")
-    parser.add_argument("-d", "--destroy", help="Destroy VMs", default=False, action="store_true")
+    parser.add_argument("-l", "--list", help="List all cached VMs", default=False, action="store_true")
+    parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
     parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")
     args = parser.parse_args()
 
@@ -561,11 +585,51 @@ def main():
         log_level = logging.DEBUG
     log = get_logger("main")
 
+    if args.list or args.destroy != None:
+        images = [f.name for f in os.scandir(os.path.abspath(os.path.expanduser(CVEX_ROOT))) if f.is_dir()]
+        if not images:
+            log.info("There are no cached VMs")
+            sys.exit(0)
+        if args.list:
+            log.info("Cached VMs:")
+        if ROUTER_VM in images:
+            if args.list != None:
+                log.info("%s", ROUTER_VM)
+            if args.destroy == "" or args.destroy == ROUTER_VM:
+                vm = VM(ROUTER_VM,
+                        ROUTER_CONFIG,
+                        cve=ROUTER_VM,
+                        destination=os.path.abspath(os.path.expanduser(ROUTER_DESTINATION)))
+                vm.destroy()
+        for image in images:
+            if image != ROUTER_VM:
+                versions = [f.name for f in os.scandir(os.path.abspath(os.path.join(os.path.expanduser(CVEX_ROOT), image))) if f.is_dir()]
+                for version in versions:
+                    if args.list:
+                        log.info("%s/%s", image, version)
+                    if args.destroy == "" or args.destroy == f"{image}/{version}":
+                        config = {
+                            "image" : image.replace("_", "/"),
+                            "version" : version,
+                            "type" : "unknown"
+                        }
+                        vm = VM("unknown", config)
+                        vm.destroy()
+        try:
+            shutil.rmtree(CVEX_ROOT)
+        except:
+            pass
+        sys.exit(0)
+
     output_dir = Path(args.output)
     if not output_dir.exists():
         output_dir.mkdir()
     elif not output_dir.is_dir():
         log.critical("%s is not a directory", output_dir)
+        sys.exit(1)
+
+    if not args.config:
+        parser.print_help()
         sys.exit(1)
 
     with args.config as f:
@@ -576,33 +640,25 @@ def main():
         log.critical("Configuration mismatch")
         sys.exit(1)
 
-    if args.destroy:
-        if len(infrastructure['vms']) > 1:
-            ROUTER_CONFIG['destination'] = os.path.abspath(os.path.expanduser(ROUTER_CONFIG['destination']))
-            vm = VM(ROUTER_VM, ROUTER_CONFIG)
-            vm.destroy()
-        for vm_name, config in infrastructure['vms'].items():
-            vm = VM(vm_name, config)
-            vm.destroy()
-        sys.exit(0)
-
     vms = {}
 
     if len(infrastructure['vms']) > 1:
-        ROUTER_CONFIG['destination'] = os.path.abspath(os.path.expanduser(ROUTER_CONFIG['destination']))
-        vm = VM(ROUTER_VM, ROUTER_CONFIG)
+        vm = VM(ROUTER_VM,
+                ROUTER_CONFIG,
+                cve=ROUTER_VM,
+                destination=os.path.abspath(os.path.expanduser(ROUTER_DESTINATION)))
         vm.run_vm()
         vms[ROUTER_VM] = vm
     for vm_name, config in infrastructure['vms'].items():
-        vm = VM(vm_name, config)
+        vm = VM(vm_name, config, infrastructure['cve'])
         vm.run_vm()
         vms[vm_name] = vm
 
     exploit = Exploit(vms)
     exploit.run(infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
 
-    #for vm_name, vm in vms.items():
-    #    vm.stop()
+    for vm_name, vm in vms.items():
+        vm.stop()
 
     sys.exit(0)
 
