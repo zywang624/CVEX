@@ -204,10 +204,14 @@ class VM:
         self.ssh.run_command("mkdir C:\\Tools")
         self.ssh.run_command("tar -xf ProcessMonitor.zip -C C:\\Tools")
 
-    def _run_shell_command(self, command: list[str], cwd: str | None = None) -> bytes:
+    def _run_shell_command(self, command: list[str], cwd: str | None = None, show_progress: bool = False) -> bytes:
         output = b""
         p = subprocess.Popen(command,stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
         for line in iter(p.stdout.readline, b''):
+            if show_progress:
+                self.log.info(line.decode().rstrip())
+            else:
+                self.log.debug(line.decode().rstrip())
             output += line.rstrip()
         return output
 
@@ -259,7 +263,7 @@ class VM:
         self.log.info("Inventory %s has been created for VM %s", inventory, self.vm_name)
         self.log.info("Executing Ansible playbook %s for %s...", self.playbook, self.vm_name)
         #ansible_playbook_runner.Runner([inventory], self.playbook).run()
-        self._run_shell_command(["ansible-playbook", "-i", inventory, self.playbook])
+        self._run_shell_command(["ansible-playbook", "-i", inventory, self.playbook], show_progress=True)
 
     def _provision_vm(self):
         self._run_ansible()
@@ -365,7 +369,7 @@ class Exploit:
     vms: dict
 
     def __init__(self, vms: dict):
-        self.log = get_logger("Exploit")
+        self.log = get_logger("exploit")
         self.vms = vms
 
     def _read_output(self, runner: fabric.runners.Remote):
@@ -424,11 +428,21 @@ class Exploit:
             if vm_name == ROUTER_VM:
                 continue
             if vm.vm_type == "windows":
+                try:
+                    vm.ssh.run_command((f"powershell \""
+                                        f"Get-NetAdapter -Name 'Ethernet 2' | "
+                                        f"New-NetIPAddress -IPAddress {vm.ip} -DefaultGateway {router.ip} -PrefixLength 24\""))
+                except:
+                    pass
+                vm.ssh.run_command("route DELETE 192.168.56.0")
                 vm.ssh.run_command("route DELETE 192.168.56.0")
                 id = self._get_windows_private_network_interface_index(vm)
                 vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {router.ip} if {id}")
             elif vm.vm_type == "linux":
-                vm.ssh.run_command("sudo ip route change 192.168.56.0/24 via 192.168.56.1 dev eth1")
+                try:
+                    vm.ssh.run_command(f"sudo ip route change 192.168.56.0/24 via {router.ip} dev eth1")
+                except:
+                    pass
                 vm.ssh.run_command("sudo systemctl restart ufw")
 
     def _stop_router_sniffing(self, output_dir: str):
@@ -573,9 +587,9 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--config", help="Configuration of the infrastructure", type=argparse.FileType('r'))
-    parser.add_argument("-o", "--output", help="Directory for generated logs", default="logs")
-    parser.add_argument("-l", "--list", help="List all cached VMs", default=False, action="store_true")
+    parser.add_argument("-c", "--config",  help="Configuration of the infrastructure", type=argparse.FileType('r'))
+    parser.add_argument("-o", "--output",  help="Directory for generated logs", default="logs")
+    parser.add_argument("-l", "--list",    help="List all cached VMs", default=False, action="store_true")
     parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
     parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")
     args = parser.parse_args()
