@@ -198,11 +198,24 @@ class VM:
         self.log.info("Initializing the router VM")
         self.ssh.run_command("wget https://downloads.mitmproxy.org/10.3.1/mitmproxy-10.3.1-linux-x86_64.tar.gz")
         self.ssh.run_command("sudo tar -xf mitmproxy-10.3.1-linux-x86_64.tar.gz -C /usr/bin")
+        self.ssh.run_command("mitmdump --mode transparent", is_async=True, until="Transparent Proxy listening at")
+        self.ssh.run_command("pkill mitmdump")
 
-    def _init_windows(self):
+    def _init_windows(self, router):
         self.ssh.run_command("curl https://download.sysinternals.com/files/ProcessMonitor.zip -o ProcessMonitor.zip")
         self.ssh.run_command("mkdir C:\\Tools")
         self.ssh.run_command("tar -xf ProcessMonitor.zip -C C:\\Tools")
+
+        local_cert = tempfile.NamedTemporaryFile()
+        router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
+        dest_crt = f"C:\\Users\\{self.vag.user()}\\mitmproxy-ca-cert.cer"
+        self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
+        self.ssh.run_command((f"powershell \""
+                              f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\LocalMachine\Root\""))
+
+    def _init_linux(self, router):
+        # TODO: install mitmproxy-ca-cert.cer
+        pass
 
     def _run_shell_command(self, command: list[str], cwd: str | None = None, show_progress: bool = False) -> bytes:
         output = b""
@@ -263,14 +276,19 @@ class VM:
         self.log.info("Inventory %s has been created for VM %s", inventory, self.vm_name)
         self.log.info("Executing Ansible playbook %s for %s...", self.playbook, self.vm_name)
         #ansible_playbook_runner.Runner([inventory], self.playbook).run()
-        self._run_shell_command(["ansible-playbook", "-i", inventory, self.playbook], show_progress=True)
+        result = self._run_shell_command(["ansible-playbook", "-i", inventory, self.playbook], show_progress=True)
+        if b"FAILED!" in result:
+            self.log.critical("Failed to run Ansible")
+            sys.exit(1)
 
-    def _provision_vm(self):
+    def _provision_vm(self, router):
         self._run_ansible()
         if self.vm_name == ROUTER_VM:
             self._init_router()
         elif self.vm_type == "windows":
-            self._init_windows()
+            self._init_windows(router)
+        elif self.vm_type == "linux":
+            self._init_linux(router)
 
     def _init_vm(self):
         self.log.info("Initializing a new VM %s at %s...", self.vm_name, self.destination)
@@ -278,7 +296,7 @@ class VM:
         self.ip = self._generate_new_ip()
         self._configure_vagrantfile()
 
-    def _start_vm(self):
+    def _start_vm(self, router):
         self.log.info("Starting the VM %s...", self.vm_name)
         try:
             self.vag.up()
@@ -290,16 +308,42 @@ class VM:
         self.vag.snapshot_save(INIT_SNAPSHOT)
 
         self.ssh = SSH(self.vag, self.vm_name)
-        self._provision_vm()
+        self._provision_vm(router)
 
         self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
         self.vag.snapshot_save(self.cve)
 
-    def run_vm(self):
+    def _update_windows_hosts(self, vms: dict):
+        remote_hosts = "/C:\\Windows\\System32\\drivers\\etc\\hosts"
+        local_hosts = tempfile.NamedTemporaryFile()
+        self.ssh.download_file(local_hosts.name, remote_hosts)
+        with open(local_hosts.name, "r") as f:
+            hosts = f.read()
+        ips = "\r\n"
+        for vm_name, vm in vms.items():
+            if vm != self:
+                ips += f"{vm.ip} {vm_name}\r\n"
+        self.log.debug("Setting ip hosts: %s", ips)
+        hosts += ips
+        with open(local_hosts.name, "w") as f:
+            f.write(hosts)
+        self.ssh.upload_file(local_hosts.name, remote_hosts)
+
+    def _update_linux_hosts(self, vms: dict):
+        # TODO
+        pass
+
+    def update_hosts(self, vms: dict):
+        if self.vm_type == "windows":
+            self._update_windows_hosts(vms)
+        elif self.vm_type == "linux":
+            self._update_linux_hosts(vms)
+
+    def run_vm(self, router = None):
         if not os.path.exists(self.destination):
             os.makedirs(self.destination)
             self._init_vm()
-            self._start_vm()
+            self._start_vm(router)
             return
         
         self.log.info("Retrieving status of %s...", self.vm_name)
@@ -307,7 +351,7 @@ class VM:
  
         if status[0].state == "not_created":
             self._init_vm()
-            self._start_vm()
+            self._start_vm(router)
         elif status[0].state == "running":
             self.ip = self._read_ip()
             self.log.info("VM %s (%s) is already running", self.vm_name, self.ip)
@@ -321,7 +365,7 @@ class VM:
                 self.vag.snapshot_save(INIT_SNAPSHOT)
 
             if self.cve not in snapshots:
-                self._provision_vm()
+                self._provision_vm(router)
                 self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
                 self.vag.snapshot_save(self.cve)
         else:
@@ -339,11 +383,11 @@ class VM:
                 self.vag.snapshot_restore(INIT_SNAPSHOT)
                 self.ssh = SSH(self.vag, self.vm_name)
 
-                self._provision_vm()
+                self._provision_vm(router)
                 self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
                 self.vag.snapshot_save(self.cve)
             else:
-                self._start_vm()
+                self._start_vm(router)
 
     def destroy(self):
         self.log.info("Destroying VM %s...", self.image)
@@ -435,7 +479,6 @@ class Exploit:
                 except:
                     pass
                 vm.ssh.run_command("route DELETE 192.168.56.0")
-                vm.ssh.run_command("route DELETE 192.168.56.0")
                 id = self._get_windows_private_network_interface_index(vm)
                 vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {router.ip} if {id}")
             elif vm.vm_type == "linux":
@@ -463,7 +506,7 @@ class Exploit:
         router.ssh.download_file(local, MITMDUMP_LOG_PATH)
 
     def _start_windows_api_tracing(self, vm: VM):
-        with open("procmon_basic_config.pmc", "rb") as f:
+        with open("data/procmon.pmc", "rb") as f:
             config = procmon_parser.load_configuration(f)
         config["FilterRules"] = [
         procmon_parser.Rule(
@@ -665,14 +708,18 @@ def main():
         vms[ROUTER_VM] = vm
     for vm_name, config in infrastructure['vms'].items():
         vm = VM(vm_name, config, infrastructure['cve'])
-        vm.run_vm()
+        vm.run_vm(vms[ROUTER_VM])
         vms[vm_name] = vm
+
+    for vm_name, vm in vms.items():
+        if vm_name != ROUTER_VM:
+            vm.update_hosts(vms)
 
     exploit = Exploit(vms)
     exploit.run(infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
 
-    for vm_name, vm in vms.items():
-        vm.stop()
+    #for vm_name, vm in vms.items():
+    #    vm.stop()
 
     sys.exit(0)
 
