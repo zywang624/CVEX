@@ -17,6 +17,7 @@ import logging
 import procmon_parser
 import tempfile
 
+INFRASTRUCTURE_FILE = "infrastructure.yml"
 
 CVEX_ROOT = "~/.cvex"
 
@@ -31,12 +32,12 @@ ROUTER_CONFIG = {
 INIT_SNAPSHOT = "clean"
 
 CVEX_TEMP_FOLDER_LINUX = "/tmp/cvex"
-CVEX_TEMP_FOLDER_WINDOWS = "C:\\cvex"
-
 MITMDUMP_LOG = "router_mitmdump.stream"
 MITMDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{MITMDUMP_LOG}"
 TCPDUMP_LOG = "router_raw.pcap"
 TCPDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{TCPDUMP_LOG}"
+
+CVEX_TEMP_FOLDER_WINDOWS = "C:\\cvex"
 PROCMON_PML_LOG = "procmon.pml"
 PROCMON_PML_LOG_PATH = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{PROCMON_PML_LOG}"
 PROCMON_XML_LOG = "procmon.xml"
@@ -112,6 +113,7 @@ class SSH:
 private_ip = 1
 
 class VM:
+    vms: list
     log: logging.Logger
     cve: str
     vag: vagrant.Vagrant
@@ -126,10 +128,28 @@ class VM:
     ssh: SSH
 
     def _get_vm_destination(self, image: str, version: str):
-        path = "~/.cvex/" + image.replace("/", "_") + "/" + version
-        return os.path.abspath(os.path.expanduser(path))
+        path = os.path.join(os.path.expanduser(CVEX_ROOT), image.replace("/", "_"), version)
+        if not os.path.exists(path):
+            return os.path.join(path, "1")
+        instances = [f.name for f in os.scandir(path) if f.is_dir()]
+        if not instances:
+            return os.path.join(path, "1")
+        free_instances = instances
+        max_instance = 1
+        for instance in instances:
+            instance_path = os.path.join(path, instance)
+            if int(instance) > max_instance:
+                max_instance = int(instance)
+            for vm in self.vms:
+                if vm.destination == instance_path:
+                    free_instances.remove(instance)
+        if free_instances:
+            return os.path.join(path, free_instances[0])
+        else:
+            return os.path.join(path, str(max_instance + 1))
 
-    def __init__(self, vm_name: str, config: dict, cve: str = "", destination: str = ""):
+    def __init__(self, vms: list, vm_name: str, config: dict, cve: str = "", destination: str = ""):
+        self.vms = vms
         self.log = get_logger(vm_name)
         self.cve = cve
         self.image = config['image']
@@ -193,6 +213,12 @@ class VM:
         global private_ip
         private_ip = int(ip.group(1)) + 1
         return "192.168.56." + ip.group(1)
+    
+    def _get_vm(self, vm_name: str) -> object | None:
+        for vm in self.vms:
+            if vm.vm_name == vm_name:
+                return vm
+        return None
 
     def _init_router(self):
         self.log.info("Initializing the router VM")
@@ -201,21 +227,32 @@ class VM:
         self.ssh.run_command("mitmdump --mode transparent", is_async=True, until="Transparent Proxy listening at")
         self.ssh.run_command("pkill mitmdump")
 
-    def _init_windows(self, router):
+    def _init_windows(self):
+        self.log.info("Initializing the Windows VM")
         self.ssh.run_command("curl https://download.sysinternals.com/files/ProcessMonitor.zip -o ProcessMonitor.zip")
         self.ssh.run_command("mkdir C:\\Tools")
         self.ssh.run_command("tar -xf ProcessMonitor.zip -C C:\\Tools")
 
-        local_cert = tempfile.NamedTemporaryFile()
-        router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
-        dest_crt = f"C:\\Users\\{self.vag.user()}\\mitmproxy-ca-cert.cer"
-        self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
-        self.ssh.run_command((f"powershell \""
-                              f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\LocalMachine\Root\""))
+        router = self._get_vm(ROUTER_VM)
+        if router:
+            local_cert = tempfile.NamedTemporaryFile()
+            router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
+            dest_crt = f"C:\\Users\\{self.vag.user()}\\mitmproxy-ca-cert.cer"
+            self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
+            self.ssh.run_command((f"powershell \""
+                                f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\LocalMachine\Root\""))
 
-    def _init_linux(self, router):
-        # TODO: install mitmproxy-ca-cert.cer
-        pass
+    def _init_linux(self):
+        self.log.info("Initializing the Linux VM")
+        router = self._get_vm(ROUTER_VM)
+        if router:
+            local_cert = tempfile.NamedTemporaryFile()
+            router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.crt")
+            remote_tmp_cert = "/tmp/mitmproxy-ca-cert.crt"
+            self.ssh.upload_file(local_cert.name, remote_tmp_cert)
+            self.ssh.run_command(f"sudo cp {remote_tmp_cert} /usr/local/share/ca-certificates")
+            self.ssh.run_command(f"sudo mv {remote_tmp_cert} /etc/ssl/certs")
+            self.ssh.run_command("sudo update-ca-certificates")
 
     def _run_shell_command(self, command: list[str], cwd: str | None = None, show_progress: bool = False) -> bytes:
         output = b""
@@ -271,24 +308,23 @@ class VM:
                         f"ansible_port={self.vag.port()} "
                         f"ansible_user={self.vag.user()} "
                         f"ansible_ssh_private_key_file={self.vag.keyfile()} "
-                        f"ansible_ssh_common_args='-o StrictHostKeyChecking=accept-new'")
+                        f"ansible_ssh_common_args='-o StrictHostKeyChecking=no'")
             f.write(data)
         self.log.info("Inventory %s has been created for VM %s", inventory, self.vm_name)
         self.log.info("Executing Ansible playbook %s for %s...", self.playbook, self.vm_name)
         #ansible_playbook_runner.Runner([inventory], self.playbook).run()
         result = self._run_shell_command(["ansible-playbook", "-i", inventory, self.playbook], show_progress=True)
-        if b"FAILED!" in result:
-            self.log.critical("Failed to run Ansible")
+        if b"unreachable=0" not in result or b"failed=0" not in result:
             sys.exit(1)
 
-    def _provision_vm(self, router):
+    def _provision_vm(self):
         self._run_ansible()
         if self.vm_name == ROUTER_VM:
             self._init_router()
         elif self.vm_type == "windows":
-            self._init_windows(router)
+            self._init_windows()
         elif self.vm_type == "linux":
-            self._init_linux(router)
+            self._init_linux()
 
     def _init_vm(self):
         self.log.info("Initializing a new VM %s at %s...", self.vm_name, self.destination)
@@ -296,7 +332,7 @@ class VM:
         self.ip = self._generate_new_ip()
         self._configure_vagrantfile()
 
-    def _start_vm(self, router):
+    def _start_vm(self):
         self.log.info("Starting the VM %s...", self.vm_name)
         try:
             self.vag.up()
@@ -308,42 +344,55 @@ class VM:
         self.vag.snapshot_save(INIT_SNAPSHOT)
 
         self.ssh = SSH(self.vag, self.vm_name)
-        self._provision_vm(router)
+        self._provision_vm()
 
         self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
         self.vag.snapshot_save(self.cve)
 
-    def _update_windows_hosts(self, vms: dict):
+    def _update_windows_hosts(self, vms: list):
         remote_hosts = "/C:\\Windows\\System32\\drivers\\etc\\hosts"
         local_hosts = tempfile.NamedTemporaryFile()
         self.ssh.download_file(local_hosts.name, remote_hosts)
         with open(local_hosts.name, "r") as f:
             hosts = f.read()
         ips = "\r\n"
-        for vm_name, vm in vms.items():
+        for vm in vms:
             if vm != self:
-                ips += f"{vm.ip} {vm_name}\r\n"
+                ips += f"{vm.ip} {vm.vm_name}\r\n"
         self.log.debug("Setting ip hosts: %s", ips)
         hosts += ips
         with open(local_hosts.name, "w") as f:
             f.write(hosts)
         self.ssh.upload_file(local_hosts.name, remote_hosts)
 
-    def _update_linux_hosts(self, vms: dict):
-        # TODO
-        pass
+    def _update_linux_hosts(self, vms: list):
+        remote_hosts = "/etc/hosts"
+        local_hosts = tempfile.NamedTemporaryFile()
+        self.ssh.download_file(local_hosts.name, remote_hosts)
+        with open(local_hosts.name, "r") as f:
+            hosts = f.read()
+        ips = "\n"
+        for vm in vms:
+            if vm != self:
+                ips += f"{vm.ip} {vm.vm_name}\r\n"
+        self.log.debug("Setting ip hosts: %s", ips)
+        hosts += ips
+        with open(local_hosts.name, "w") as f:
+            f.write(hosts)
+        self.ssh.upload_file(local_hosts.name, "/tmp/hosts")
+        self.ssh.run_command(f"sudo mv /tmp/hosts {remote_hosts}")
 
-    def update_hosts(self, vms: dict):
+    def update_hosts(self, vms: list):
         if self.vm_type == "windows":
             self._update_windows_hosts(vms)
         elif self.vm_type == "linux":
             self._update_linux_hosts(vms)
 
-    def run_vm(self, router = None):
+    def run_vm(self):
         if not os.path.exists(self.destination):
             os.makedirs(self.destination)
             self._init_vm()
-            self._start_vm(router)
+            self._start_vm()
             return
         
         self.log.info("Retrieving status of %s...", self.vm_name)
@@ -351,7 +400,7 @@ class VM:
  
         if status[0].state == "not_created":
             self._init_vm()
-            self._start_vm(router)
+            self._start_vm()
         elif status[0].state == "running":
             self.ip = self._read_ip()
             self.log.info("VM %s (%s) is already running", self.vm_name, self.ip)
@@ -365,7 +414,7 @@ class VM:
                 self.vag.snapshot_save(INIT_SNAPSHOT)
 
             if self.cve not in snapshots:
-                self._provision_vm(router)
+                self._provision_vm()
                 self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
                 self.vag.snapshot_save(self.cve)
         else:
@@ -383,11 +432,12 @@ class VM:
                 self.vag.snapshot_restore(INIT_SNAPSHOT)
                 self.ssh = SSH(self.vag, self.vm_name)
 
-                self._provision_vm(router)
+                self._provision_vm()
                 self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
                 self.vag.snapshot_save(self.cve)
             else:
-                self._start_vm(router)
+                self.ip = self._read_ip()
+                self._start_vm()
 
     def destroy(self):
         self.log.info("Destroying VM %s...", self.image)
@@ -410,9 +460,9 @@ class VM:
 
 class Exploit:
     log: logging.Logger
-    vms: dict
+    vms: list
 
-    def __init__(self, vms: dict):
+    def __init__(self, vms: list[VM]):
         self.log = get_logger("exploit")
         self.vms = vms
 
@@ -439,10 +489,16 @@ class Exploit:
             sys.exit(1)
         return id.group(1)
 
+    def _get_vm(self, vm_name: str) -> VM | None:
+        for vm in self.vms:
+            if vm.vm_name == vm_name:
+                return vm
+        return None
+
     def _start_router_sniffing(self):
-        if ROUTER_VM not in self.vms:
+        router = self._get_vm(ROUTER_VM)
+        if not router:
             return
-        router = self.vms[ROUTER_VM]
         try:
             router.ssh.run_command("pkill mitmdump")
         except:
@@ -468,8 +524,8 @@ class Exploit:
         router.tcpdump_thread = threading.Thread(target=self._read_output, args=[router.tcpdump_runner])
         router.tcpdump_thread.start()
 
-        for vm_name, vm in self.vms.items():
-            if vm_name == ROUTER_VM:
+        for vm in self.vms:
+            if vm.vm_name == ROUTER_VM:
                 continue
             if vm.vm_type == "windows":
                 try:
@@ -489,9 +545,9 @@ class Exploit:
                 vm.ssh.run_command("sudo systemctl restart ufw")
 
     def _stop_router_sniffing(self, output_dir: str):
-        if ROUTER_VM not in self.vms:
+        router = self._get_vm(ROUTER_VM)
+        if not router:
             return
-        router = self.vms[ROUTER_VM]
 
         self.log.info("Wait for 5 seconds to let tcpdump flush log on disk...")
         time.sleep(5)
@@ -569,7 +625,7 @@ class Exploit:
             self.log.info("strace log was stored to %s", out)
 
     def _start_api_tracing(self):
-        for _, vm in self.vms.items():
+        for vm in self.vms:
             if vm.trace:
                 if vm.vm_type == "windows":
                     self._start_windows_api_tracing(vm)
@@ -577,7 +633,7 @@ class Exploit:
                     self._start_linux_api_tracing(vm)
 
     def _stop_api_tracing(self, output_dir: str):
-        for _, vm in self.vms.items():
+        for vm in self.vms:
             if vm.trace:
                 if vm.vm_type == "windows":
                     self._stop_windows_api_tracing(vm, output_dir)
@@ -586,24 +642,28 @@ class Exploit:
 
     def _get_command(self, command_template: str):
         command = command_template
-        for vm_name, vm in self.vms.items():
-            command = command.replace(f"%{vm_name}%", vm.ip)
+        for vm in self.vms:
+            command = command.replace(f"%{vm.vm_name}%", vm.ip)
         return command
 
     def run(self, attacker_vm: str, command: str, output_dir: str):
+        vm = self._get_vm(attacker_vm)
+        if not vm:
+            self.log.critical("Can't find VM %s", attacker_vm)
+            sys.exit(1)
+        
         self._start_router_sniffing()
         self._start_api_tracing()
 
-        self.vms[attacker_vm].ssh.run_command(self._get_command(command))
+        vm.ssh.run_command(self._get_command(command))
 
         self._stop_router_sniffing(output_dir)
         self._stop_api_tracing(output_dir)
 
 
-def verify_infrastructure_config(config: dict, config_path: str) -> dict | None:
+def verify_infrastructure_config(config: dict, config_dir: str) -> dict | None:
     if 'cve' not in config:
         return None
-    config_dir = os.path.split(config_path)[0]
     if 'vms' not in config or not config['vms']:
         return None
     if ROUTER_VM in config['vms']:
@@ -630,7 +690,7 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--config",  help="Configuration of the infrastructure", type=argparse.FileType('r'))
+    parser.add_argument("-c", "--config",  help="Directory with the configuration of the infrastructure")
     parser.add_argument("-o", "--output",  help="Directory for generated logs", default="logs")
     parser.add_argument("-l", "--list",    help="List all cached VMs", default=False, action="store_true")
     parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
@@ -643,24 +703,25 @@ def main():
     log = get_logger("main")
 
     if args.list or args.destroy != None:
-        images = [f.name for f in os.scandir(os.path.abspath(os.path.expanduser(CVEX_ROOT))) if f.is_dir()]
+        images = [f.name for f in os.scandir(os.path.expanduser(CVEX_ROOT)) if f.is_dir()]
         if not images:
             log.info("There are no cached VMs")
             sys.exit(0)
         if args.list:
             log.info("Cached VMs:")
         if ROUTER_VM in images:
-            if args.list != None:
+            if args.list:
                 log.info("%s", ROUTER_VM)
             if args.destroy == "" or args.destroy == ROUTER_VM:
-                vm = VM(ROUTER_VM,
+                vm = VM([],
+                        ROUTER_VM,
                         ROUTER_CONFIG,
                         cve=ROUTER_VM,
-                        destination=os.path.abspath(os.path.expanduser(ROUTER_DESTINATION)))
+                        destination=os.path.expanduser(ROUTER_DESTINATION))
                 vm.destroy()
         for image in images:
             if image != ROUTER_VM:
-                versions = [f.name for f in os.scandir(os.path.abspath(os.path.join(os.path.expanduser(CVEX_ROOT), image))) if f.is_dir()]
+                versions = [f.name for f in os.scandir(os.path.join(os.path.expanduser(CVEX_ROOT), image)) if f.is_dir()]
                 for version in versions:
                     if args.list:
                         log.info("%s/%s", image, version)
@@ -685,40 +746,42 @@ def main():
         log.critical("%s is not a directory", output_dir)
         sys.exit(1)
 
-    if not args.config:
+    infrastructure_file = os.path.join(args.config, INFRASTRUCTURE_FILE)
+    if not args.config or not os.path.exists(infrastructure_file):
         parser.print_help()
         sys.exit(1)
 
-    with args.config as f:
+    with open(infrastructure_file, "r") as f:
         infrastructure = yaml.safe_load(f)
     
-    infrastructure = verify_infrastructure_config(infrastructure, args.config.name)
+    infrastructure = verify_infrastructure_config(infrastructure, args.config)
     if not infrastructure:
         log.critical("Configuration mismatch")
         sys.exit(1)
 
-    vms = {}
+    vms = []
 
     if len(infrastructure['vms']) > 1:
-        vm = VM(ROUTER_VM,
+        vm = VM([],
+                ROUTER_VM,
                 ROUTER_CONFIG,
                 cve=ROUTER_VM,
                 destination=os.path.abspath(os.path.expanduser(ROUTER_DESTINATION)))
         vm.run_vm()
-        vms[ROUTER_VM] = vm
+        vms.append(vm)
     for vm_name, config in infrastructure['vms'].items():
-        vm = VM(vm_name, config, infrastructure['cve'])
-        vm.run_vm(vms[ROUTER_VM])
-        vms[vm_name] = vm
+        vm = VM(vms, vm_name, config, cve=infrastructure['cve'])
+        vm.run_vm()
+        vms.append(vm)
 
-    for vm_name, vm in vms.items():
-        if vm_name != ROUTER_VM:
+    for vm in vms:
+        if vm.vm_name != ROUTER_VM:
             vm.update_hosts(vms)
 
     exploit = Exploit(vms)
     exploit.run(infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
 
-    #for vm_name, vm in vms.items():
+    #for vm in vms:
     #    vm.stop()
 
     sys.exit(0)
