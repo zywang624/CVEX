@@ -34,6 +34,7 @@ INIT_SNAPSHOT = "clean"
 CVEX_TEMP_FOLDER_LINUX = "/tmp/cvex"
 MITMDUMP_LOG = "router_mitmdump.stream"
 MITMDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{MITMDUMP_LOG}"
+DEFAULT_MITMDUM_PORT = 443
 TCPDUMP_LOG = "router_raw.pcap"
 TCPDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{TCPDUMP_LOG}"
 
@@ -110,9 +111,84 @@ class SSH:
         self.ssh.get(dest, local)
 
 
-private_ip = 1
+class IPManager:
+    log: logging.Logger
+    ips: dict
+
+    def __init__(self):
+        self.log = get_logger("IPManager")
+        self.ips = {}
+        destination = os.path.expanduser(ROUTER_DESTINATION)
+        ip = self.read_private_ip(destination)
+        if ip:
+            self.log.debug("Loaded IP for %s: %s", destination, ip)
+            self.ips[destination] = ip
+        root = os.path.expanduser(CVEX_ROOT)
+        for image in os.scandir(root):
+            if not image.is_dir() or image.name == ROUTER_VM:
+                continue
+            image = os.path.join(root, image.name)
+            for version in os.scandir(image):
+                if not version.is_dir():
+                    continue
+                version = os.path.join(image, version.name)
+                for instance in os.scandir(version):
+                    if not instance.is_dir():
+                        continue
+                    destination = os.path.join(version, instance.name)
+                    ip = self.read_private_ip(destination)
+                    if ip:
+                        self.log.debug("Loaded IP for %s: %s", destination, ip)
+                        self.ips[destination] = ip
+
+    def generate_new_ip(self, destination: str) -> str:
+        if not self.ips:
+            return "192.168.56.1"
+        for c in range(1, 255):
+            found = False
+            for destination, ip in self.ips.items():
+                if ip.endswith(f".{c}"):
+                    found = True
+                    break
+            if not found:
+                ip = f"192.168.56.{c}"
+                self.log.debug("Generated new IP for %s: %s", destination, ip)
+                self.ips[destination] = ip
+                return ip
+        return "192.168.56.256"
+
+    def read_private_ip(self, destination: str) -> str | None:
+        vagrantfile = f"{destination}/Vagrantfile"
+        if not os.path.exists(vagrantfile):
+            return None
+        with open(vagrantfile, "r") as f:
+            data = f.read()
+        ip = re.search(r'config\.vm\.network "private_network", ip: "(192\.168\.56\.\d+)"', data)
+        if not ip:
+            return None
+        return ip.group(1)
+    
+    def write_private_ip(self, destination: str, image: str, ip: str):
+        vagrantfile = os.path.join(destination, "Vagrantfile")
+        if not os.path.exists(vagrantfile):
+            return
+        with open(vagrantfile, "r") as f:
+            data = f.read()
+        config = f"  config.vm.box = \"{image}\""
+        pos = data.find(config)
+        if pos == -1:
+            return
+        with open(vagrantfile, "w") as f:
+            f.write(data[:pos + len(config)])
+            f.write((f"\n"
+                     f"  config.vm.network \"private_network\", ip: \"{ip}\"\n"
+                     f"\n"
+                     ))
+            f.write(data[pos + len(config):])
+    
 
 class VM:
+    ips: IPManager
     vms: list
     log: logging.Logger
     cve: str
@@ -148,7 +224,8 @@ class VM:
         else:
             return os.path.join(path, str(max_instance + 1))
 
-    def __init__(self, vms: list, vm_name: str, config: dict, cve: str = "", destination: str = ""):
+    def __init__(self, vms: list, vm_name: str, config: dict, ips: IPManager, cve: str = "", destination: str = ""):
+        self.ips = ips
         self.vms = vms
         self.log = get_logger(vm_name)
         self.cve = cve
@@ -187,33 +264,11 @@ class VM:
             f.write(data[:pos + len(config)])
             f.write((f"\n"
                      f"  config.vm.box_version = \"{self.version}\"\n"
-                     f"  config.vm.network \"private_network\", ip: \"{self.ip}\"\n"
                      f"  config.vm.hostname = \"{self.vm_name}\"\n"
                      f"\n"
                      ))
             f.write(data[pos + len(config):])
-    
-    def _generate_new_ip(self):
-        global private_ip
-        ip = f"192.168.56.{private_ip}"
-        private_ip += 1
-        return ip
 
-    def _read_ip(self):
-        vagrantfile = os.path.join(self.destination, "Vagrantfile")
-        if not os.path.exists(vagrantfile):
-            self.log.critical("Can't find Vagrantfile %s", vagrantfile)
-            sys.exit(1)
-        with open(vagrantfile, "r") as f:
-            data = f.read()
-        ip = re.search(r'config\.vm\.network "private_network", ip: "192\.168\.56\.(\d+)"', data)
-        if not ip:
-            self.log.critical("Bad Vagrantfile %s", vagrantfile)
-            sys.exit(1)
-        global private_ip
-        private_ip = int(ip.group(1)) + 1
-        return "192.168.56." + ip.group(1)
-    
     def _get_vm(self, vm_name: str) -> object | None:
         for vm in self.vms:
             if vm.vm_name == vm_name:
@@ -247,7 +302,7 @@ class VM:
         router = self._get_vm(ROUTER_VM)
         if router:
             local_cert = tempfile.NamedTemporaryFile()
-            router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.crt")
+            router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
             remote_tmp_cert = "/tmp/mitmproxy-ca-cert.crt"
             self.ssh.upload_file(local_cert.name, remote_tmp_cert)
             self.ssh.run_command(f"sudo cp {remote_tmp_cert} /usr/local/share/ca-certificates")
@@ -329,8 +384,9 @@ class VM:
     def _init_vm(self):
         self.log.info("Initializing a new VM %s at %s...", self.vm_name, self.destination)
         self.vag.init(box_url=self.image)
-        self.ip = self._generate_new_ip()
+        self.ip = self.ips.generate_new_ip(self.destination)
         self._configure_vagrantfile()
+        self.ips.write_private_ip(self.destination, self.image, self.ip)
 
     def _start_vm(self):
         self.log.info("Starting the VM %s...", self.vm_name)
@@ -402,7 +458,7 @@ class VM:
             self._init_vm()
             self._start_vm()
         elif status[0].state == "running":
-            self.ip = self._read_ip()
+            self.ip = self.ips.read_private_ip(self.destination)
             self.log.info("VM %s (%s) is already running", self.vm_name, self.ip)
             self.ssh = SSH(self.vag, self.vm_name)
 
@@ -422,21 +478,26 @@ class VM:
             snapshots = self.vag.snapshot_list()
 
             if self.cve in snapshots:
-                self.ip = self._read_ip()
+                self.ip = self.ips.read_private_ip(self.destination)
                 self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, self.cve)
-                self.vag.snapshot_restore(self.cve)
+                try:
+                    self.vag.snapshot_restore(self.cve)
+                except:
+                    self.vag.reload()
                 self.ssh = SSH(self.vag, self.vm_name)
             elif INIT_SNAPSHOT in snapshots:
-                self.ip = self._read_ip()
+                self.ip = self.ips.read_private_ip(self.destination)
                 self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, INIT_SNAPSHOT)
-                self.vag.snapshot_restore(INIT_SNAPSHOT)
+                try:
+                    self.vag.snapshot_restore(INIT_SNAPSHOT)
+                except:
+                    self.vag.reload()
                 self.ssh = SSH(self.vag, self.vm_name)
-
                 self._provision_vm()
                 self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
                 self.vag.snapshot_save(self.cve)
             else:
-                self.ip = self._read_ip()
+                self.ip = self.ips.read_private_ip(self.destination)
                 self._start_vm()
 
     def destroy(self):
@@ -461,10 +522,12 @@ class VM:
 class Exploit:
     log: logging.Logger
     vms: list
+    ports: list[int]
 
-    def __init__(self, vms: list[VM]):
+    def __init__(self, vms: list[VM], ports: list[int]):
         self.log = get_logger("exploit")
         self.vms = vms
+        self.ports = ports
 
     def _read_output(self, runner: fabric.runners.Remote):
         try:
@@ -513,16 +576,18 @@ class Exploit:
             pass
         router.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
         router.ssh.run_command("sudo sysctl net.ipv4.ip_forward=1")
-        router.ssh.run_command("sudo iptables -t nat -I PREROUTING --src 0/0 --dst 0/0 -p tcp --dport 443 -j REDIRECT --to-ports 8080")
         router.tcpdump_runner = router.ssh.run_command(
             f"sudo tcpdump -i eth1 -U -w {TCPDUMP_LOG_PATH}", is_async=True)
+        router.tcpdump_thread = threading.Thread(target=self._read_output, args=[router.tcpdump_runner])
+        router.tcpdump_thread.start()
+        for port in self.ports:
+            router.ssh.run_command(
+                f"sudo iptables -t nat -I PREROUTING --src 0/0 --dst 0/0 -p tcp --dport {port} -j REDIRECT --to-ports 8080")
         router.mitmdump_runner = router.ssh.run_command(
             f"mitmdump --mode transparent -k --set block_global=false -w {MITMDUMP_LOG_PATH}",
             is_async=True, until="Transparent Proxy listening at")
         router.mitmdump_thread = threading.Thread(target=self._read_output, args=[router.mitmdump_runner])
         router.mitmdump_thread.start()
-        router.tcpdump_thread = threading.Thread(target=self._read_output, args=[router.tcpdump_runner])
-        router.tcpdump_thread.start()
 
         for vm in self.vms:
             if vm.vm_name == ROUTER_VM:
@@ -549,17 +614,17 @@ class Exploit:
         if not router:
             return
 
-        self.log.info("Wait for 5 seconds to let tcpdump flush log on disk...")
-        time.sleep(5)
-        router.ssh.send_ctrl_c(router.mitmdump_runner)
         router.ssh.send_ctrl_c(router.tcpdump_runner)
-        #router.mitmdump_thread.join()
-        #router.tcpdump_thread.join()
+        router.ssh.send_ctrl_c(router.mitmdump_runner)
 
-        local = f"{output_dir}/{TCPDUMP_LOG}"
-        router.ssh.download_file(local, TCPDUMP_LOG_PATH)
-        local = f"{output_dir}/{MITMDUMP_LOG}"
-        router.ssh.download_file(local, MITMDUMP_LOG_PATH)
+        self.log.info("Wait for 5 seconds to let tcpdump and mitmdump flush logs on disk...")
+        time.sleep(5)
+
+        #router.tcpdump_thread.join()
+        #router.mitmdump_thread.join()
+
+        router.ssh.download_file(f"{output_dir}/{TCPDUMP_LOG}", TCPDUMP_LOG_PATH)
+        router.ssh.download_file(f"{output_dir}/{MITMDUMP_LOG}", MITMDUMP_LOG_PATH)
 
     def _start_windows_api_tracing(self, vm: VM):
         with open("data/procmon.pmc", "rb") as f:
@@ -664,6 +729,13 @@ class Exploit:
 def verify_infrastructure_config(config: dict, config_dir: str) -> dict | None:
     if 'cve' not in config:
         return None
+    if 'ports' in config:
+        if type(config['ports']) != int and type(config['ports']) != list:
+            return None
+        if type(config['ports']) == list:
+            for port in config['ports']:
+                if type(port) != int:
+                    return None
     if 'vms' not in config or not config['vms']:
         return None
     if ROUTER_VM in config['vms']:
@@ -759,18 +831,20 @@ def main():
         log.critical("Configuration mismatch")
         sys.exit(1)
 
+    ips = IPManager()
     vms = []
 
     if len(infrastructure['vms']) > 1:
         vm = VM([],
                 ROUTER_VM,
                 ROUTER_CONFIG,
+                ips,
                 cve=ROUTER_VM,
                 destination=os.path.abspath(os.path.expanduser(ROUTER_DESTINATION)))
         vm.run_vm()
         vms.append(vm)
     for vm_name, config in infrastructure['vms'].items():
-        vm = VM(vms, vm_name, config, cve=infrastructure['cve'])
+        vm = VM(vms, vm_name, config,  ips, cve=infrastructure['cve'])
         vm.run_vm()
         vms.append(vm)
 
@@ -778,7 +852,15 @@ def main():
         if vm.vm_name != ROUTER_VM:
             vm.update_hosts(vms)
 
-    exploit = Exploit(vms)
+    if 'ports' in infrastructure:
+        if type(infrastructure['ports']) == list:
+            ports = infrastructure['ports']
+        else:
+            ports = [infrastructure['ports']]
+    else:
+        ports = [DEFAULT_MITMDUM_PORT]
+
+    exploit = Exploit(vms, ports)
     exploit.run(infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
 
     #for vm in vms:
