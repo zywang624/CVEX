@@ -1,21 +1,21 @@
 import argparse
+import logging
 import os
-import io
 import re
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 from pathlib import Path
-import paramiko
+
 import fabric
+import paramiko
+import procmon_parser
 import vagrant
 import yaml
-import time
-import logging
-import procmon_parser
-import tempfile
 
 INFRASTRUCTURE_FILE = "infrastructure.yml"
 
@@ -247,7 +247,7 @@ class VM:
         else:
             self.trace = None
         self.ip = None
-    
+
     def _configure_vagrantfile(self):
         vagrantfile = os.path.join(self.destination, "Vagrantfile")
         if not os.path.exists(vagrantfile):
@@ -450,10 +450,10 @@ class VM:
             self._init_vm()
             self._start_vm()
             return
-        
+
         self.log.info("Retrieving status of %s...", self.vm_name)
         status = self.vag.status()
- 
+
         if status[0].state == "not_created":
             self._init_vm()
             self._start_vm()
@@ -716,7 +716,7 @@ class Exploit:
         if not vm:
             self.log.critical("Can't find VM %s", attacker_vm)
             sys.exit(1)
-        
+
         self._start_router_sniffing()
         self._start_api_tracing()
 
@@ -825,7 +825,7 @@ def main():
 
     with open(infrastructure_file, "r") as f:
         infrastructure = yaml.safe_load(f)
-    
+
     infrastructure = verify_infrastructure_config(infrastructure, args.config)
     if not infrastructure:
         log.critical("Configuration mismatch")
