@@ -281,6 +281,10 @@ class VM:
         self.ssh.run_command("sudo tar -xf mitmproxy-10.3.1-linux-x86_64.tar.gz -C /usr/bin")
         self.ssh.run_command("mitmdump --mode transparent", is_async=True, until="Transparent Proxy listening at")
         self.ssh.run_command("pkill mitmdump")
+        self.ssh.upload_file("data/certindex", "certindex")
+        self.ssh.upload_file("data/default.cfg", "/home/vagrant/.mitmproxy/default.cfg")
+        self.ssh.run_command(f"openssl ca -config /home/{self.vag.user()}/.mitmproxy/default.cfg -gencrl -inform PEM -keyfile /home/{self.vag.user()}/.mitmproxy/mitmproxy-ca.pem -cert /home/{self.vag.user()}/.mitmproxy/mitmproxy-ca-cert.pem -out /home/{self.vag.user()}/.mitmproxy/root.crl.pem")
+        self.ssh.run_command(f"openssl crl -inform PEM -in /home/{self.vag.user()}/.mitmproxy/root.crl.pem -outform DER -out /home/{self.vag.user()}/.mitmproxy/root.crl")
 
     def _init_windows(self):
         self.log.info("Initializing the Windows VM")
@@ -296,6 +300,11 @@ class VM:
             self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
             self.ssh.run_command((f"powershell \""
                                 f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\LocalMachine\Root\""))
+            local_crl = tempfile.NamedTemporaryFile()
+            router.ssh.download_file(local_crl.name, f"/home/{router.vag.user()}/.mitmproxy/root.crl")
+            dest_crl = f"C:\\Users\\{self.vag.user()}\\root.crl"
+            self.ssh.upload_file(local_crl.name, f"/{dest_crl}")
+            self.ssh.run_command(f"certutil -addstore CA {dest_crl}")
 
     def _init_linux(self):
         self.log.info("Initializing the Linux VM")
