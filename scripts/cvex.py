@@ -24,9 +24,9 @@ CVEX_ROOT = "~/.cvex"
 ROUTER_VM = "router"
 ROUTER_DESTINATION = f"{CVEX_ROOT}/{ROUTER_VM}"
 ROUTER_CONFIG = {
-    "image" : "bento/ubuntu-22.04",
-    "version" : "202404.23.0",
-    "type" : "linux"
+    "image": "bento/ubuntu-22.04",
+    "version": "202404.23.0",
+    "type": "linux"
 }
 
 INIT_SNAPSHOT = "clean"
@@ -38,11 +38,11 @@ DEFAULT_MITMDUM_PORT = 443
 TCPDUMP_LOG = "router_raw.pcap"
 TCPDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{TCPDUMP_LOG}"
 
-CVEX_TEMP_FOLDER_WINDOWS = "C:\\cvex"
+CVEX_TEMP_FOLDER_WINDOWS = r"C:\cvex"
 PROCMON_PML_LOG = "procmon.pml"
-PROCMON_PML_LOG_PATH = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{PROCMON_PML_LOG}"
+PROCMON_PML_LOG_PATH = rf"{CVEX_TEMP_FOLDER_WINDOWS}\{PROCMON_PML_LOG}"
 PROCMON_XML_LOG = "procmon.xml"
-PROCMON_XML_LOG_PATH = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{PROCMON_XML_LOG}"
+PROCMON_XML_LOG_PATH = rf"{CVEX_TEMP_FOLDER_WINDOWS}\{PROCMON_XML_LOG}"
 
 
 log_level = logging.INFO
@@ -799,9 +799,9 @@ def main():
                         log.info("%s/%s", image, version)
                     if args.destroy == "" or args.destroy == f"{image}/{version}":
                         config = {
-                            "image" : image.replace("_", "/"),
-                            "version" : version,
-                            "type" : "unknown"
+                            "image": image.replace("_", "/"),
+                            "version": version,
+                            "type": "unknown"
                         }
                         vm = VM("unknown", config)
                         vm.destroy()
@@ -818,8 +818,8 @@ def main():
         log.critical("%s is not a directory", output_dir)
         sys.exit(1)
 
-    infrastructure_file = os.path.join(args.config, INFRASTRUCTURE_FILE)
-    if not args.config or not os.path.exists(infrastructure_file):
+    infrastructure_file = Path(args.config, INFRASTRUCTURE_FILE)
+    if not infrastructure_file.exists():
         parser.print_help()
         sys.exit(1)
 
