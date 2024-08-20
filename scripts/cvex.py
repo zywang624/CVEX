@@ -294,12 +294,14 @@ class VM:
 
         router = self._get_vm(ROUTER_VM)
         if router:
+            # Install the Certificate Authority (root) certificate
             local_cert = tempfile.NamedTemporaryFile()
             router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
             dest_crt = f"C:\\Users\\{self.vag.user()}\\mitmproxy-ca-cert.cer"
             self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
             self.ssh.run_command((f"powershell \""
                                 f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\LocalMachine\Root\""))
+            # Install the empty Certificate Revocation List
             local_crl = tempfile.NamedTemporaryFile()
             router.ssh.download_file(local_crl.name, f"/home/{router.vag.user()}/.mitmproxy/root.crl")
             dest_crl = f"C:\\Users\\{self.vag.user()}\\root.crl"
@@ -310,12 +312,12 @@ class VM:
         self.log.info("Initializing the Linux VM")
         router = self._get_vm(ROUTER_VM)
         if router:
+            # Install the Certificate Authority (root) certificate
             local_cert = tempfile.NamedTemporaryFile()
             router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
             remote_tmp_cert = "/tmp/mitmproxy-ca-cert.crt"
             self.ssh.upload_file(local_cert.name, remote_tmp_cert)
-            self.ssh.run_command(f"sudo cp {remote_tmp_cert} /usr/local/share/ca-certificates")
-            self.ssh.run_command(f"sudo mv {remote_tmp_cert} /etc/ssl/certs")
+            self.ssh.run_command(f"sudo mv {remote_tmp_cert} /usr/local/share/ca-certificates")
             self.ssh.run_command("sudo update-ca-certificates")
 
     def _run_shell_command(self, command: list[str], cwd: str | None = None, show_progress: bool = False) -> bytes:
@@ -567,7 +569,7 @@ class Exploit:
                 return vm
         return None
 
-    def _start_router_sniffing(self):
+    def _start_router_sniffing(self, attacker_vm: str):
         router = self._get_vm(ROUTER_VM)
         if not router:
             return
@@ -598,25 +600,23 @@ class Exploit:
         router.mitmdump_thread = threading.Thread(target=self._read_output, args=[router.mitmdump_runner])
         router.mitmdump_thread.start()
 
-        for vm in self.vms:
-            if vm.vm_name == ROUTER_VM:
-                continue
-            if vm.vm_type == "windows":
-                try:
-                    vm.ssh.run_command((f"powershell \""
-                                        f"Get-NetAdapter -Name 'Ethernet 2' | "
-                                        f"New-NetIPAddress -IPAddress {vm.ip} -DefaultGateway {router.ip} -PrefixLength 24\""))
-                except:
-                    pass
-                vm.ssh.run_command("route DELETE 192.168.56.0")
-                id = self._get_windows_private_network_interface_index(vm)
-                vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {router.ip} if {id}")
-            elif vm.vm_type == "linux":
-                try:
-                    vm.ssh.run_command(f"sudo ip route change 192.168.56.0/24 via {router.ip} dev eth1")
-                except:
-                    pass
-                vm.ssh.run_command("sudo systemctl restart ufw")
+        vm = self._get_vm(attacker_vm)
+        if vm.vm_type == "windows":
+            try:
+                vm.ssh.run_command((f"powershell \""
+                                    f"Get-NetAdapter -Name 'Ethernet 2' | "
+                                    f"New-NetIPAddress -IPAddress {vm.ip} -DefaultGateway {router.ip} -PrefixLength 24\""))
+            except:
+                pass
+            vm.ssh.run_command("route DELETE 192.168.56.0")
+            id = self._get_windows_private_network_interface_index(vm)
+            vm.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {router.ip} if {id}")
+        elif vm.vm_type == "linux":
+            try:
+                vm.ssh.run_command(f"sudo ip route change 192.168.56.0/24 via {router.ip} dev eth1")
+            except:
+                pass
+            vm.ssh.run_command("sudo systemctl restart ufw")
 
     def _stop_router_sniffing(self, output_dir: str):
         router = self._get_vm(ROUTER_VM)
@@ -726,7 +726,7 @@ class Exploit:
             self.log.critical("Can't find VM %s", attacker_vm)
             sys.exit(1)
 
-        self._start_router_sniffing()
+        self._start_router_sniffing(attacker_vm)
         self._start_api_tracing()
 
         vm.ssh.run_command(self._get_command(command))
