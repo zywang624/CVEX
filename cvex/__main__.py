@@ -62,6 +62,8 @@ def main():
         log_level = logging.DEBUG
     log = get_logger("main")
 
+    CVEX_ROOT.mkdir(exist_ok=True)
+
     if args.list or args.destroy != None:
         images = [f.name for f in os.scandir(os.path.expanduser(CVEX_ROOT)) if f.is_dir()]
         if not images:

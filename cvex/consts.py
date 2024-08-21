@@ -1,6 +1,8 @@
+from pathlib import Path
+
 INFRASTRUCTURE_FILE = "infrastructure.yml"
 
-CVEX_ROOT = "~/.cvex"
+CVEX_ROOT = Path.home() / ".cvex"
 
 ROUTER_VM = "router"
 ROUTER_DESTINATION = f"{CVEX_ROOT}/{ROUTER_VM}"
