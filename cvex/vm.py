@@ -108,6 +108,10 @@ class VM:
         self.ssh.run_command("sudo tar -xf mitmproxy-10.3.1-linux-x86_64.tar.gz -C /usr/bin")
         self.ssh.run_command("mitmdump --mode transparent", is_async=True, until="Transparent Proxy listening at")
         self.ssh.run_command("pkill mitmdump")
+        self.ssh.upload_file("data/certindex", "certindex")
+        self.ssh.upload_file("data/default.cfg", "/home/vagrant/.mitmproxy/default.cfg")
+        self.ssh.run_command(f"openssl ca -config /home/{self.vag.user()}/.mitmproxy/default.cfg -gencrl -inform PEM -keyfile /home/{self.vag.user()}/.mitmproxy/mitmproxy-ca.pem -cert /home/{self.vag.user()}/.mitmproxy/mitmproxy-ca-cert.pem -out /home/{self.vag.user()}/.mitmproxy/root.crl.pem")
+        self.ssh.run_command(f"openssl crl -inform PEM -in /home/{self.vag.user()}/.mitmproxy/root.crl.pem -outform DER -out /home/{self.vag.user()}/.mitmproxy/root.crl")
 
     def _init_windows(self):
         self.log.info("Initializing the Windows VM")
@@ -117,23 +121,30 @@ class VM:
 
         router = self._get_vm(ROUTER_VM)
         if router:
+            # Install the Certificate Authority (root) certificate
             local_cert = tempfile.NamedTemporaryFile()
             router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
             dest_crt = f"C:\\Users\\{self.vag.user()}\\mitmproxy-ca-cert.cer"
             self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
             self.ssh.run_command((f"powershell \""
                                   f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\LocalMachine\Root\""))
+            # Install the empty Certificate Revocation List
+            local_crl = tempfile.NamedTemporaryFile()
+            router.ssh.download_file(local_crl.name, f"/home/{router.vag.user()}/.mitmproxy/root.crl")
+            dest_crl = f"C:\\Users\\{self.vag.user()}\\root.crl"
+            self.ssh.upload_file(local_crl.name, f"/{dest_crl}")
+            self.ssh.run_command(f"certutil -addstore CA {dest_crl}")
 
     def _init_linux(self):
         self.log.info("Initializing the Linux VM")
         router = self._get_vm(ROUTER_VM)
         if router:
+            # Install the Certificate Authority (root) certificate
             local_cert = tempfile.NamedTemporaryFile()
             router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
             remote_tmp_cert = "/tmp/mitmproxy-ca-cert.crt"
             self.ssh.upload_file(local_cert.name, remote_tmp_cert)
-            self.ssh.run_command(f"sudo cp {remote_tmp_cert} /usr/local/share/ca-certificates")
-            self.ssh.run_command(f"sudo mv {remote_tmp_cert} /etc/ssl/certs")
+            self.ssh.run_command(f"sudo mv {remote_tmp_cert} /usr/local/share/ca-certificates")
             self.ssh.run_command("sudo update-ca-certificates")
 
     def _run_shell_command(self, command: list[str], cwd: str | None = None, show_progress: bool = False) -> bytes:
