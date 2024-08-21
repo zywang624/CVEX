@@ -3,14 +3,13 @@ import logging
 import os
 import shutil
 import sys
-from pathlib import Path
 
 import yaml
 
 from cvex.consts import *
 from cvex.exploit import Exploit
 from cvex.ip_manager import IPManager
-from cvex.logger import get_logger
+from cvex.logger import get_logger, set_log_level
 from cvex.vm import VM
 
 
@@ -58,8 +57,7 @@ def main():
     args = parser.parse_args()
 
     if args.verbose:
-        global log_level
-        log_level = logging.DEBUG
+        set_log_level(logging.DEBUG)
     log = get_logger("main")
 
     CVEX_ROOT.mkdir(exist_ok=True)
