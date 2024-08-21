@@ -50,7 +50,7 @@ def main():
         description="",
     )
     parser.add_argument("-c", "--config", help="Directory with the configuration of the infrastructure")
-    parser.add_argument("-o", "--output", help="Directory for generated logs", default="logs")
+    parser.add_argument("-o", "--output", help="Directory for generated logs", default="out")
     parser.add_argument("-l", "--list", help="List all cached VMs", default=False, action="store_true")
     parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
     parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")

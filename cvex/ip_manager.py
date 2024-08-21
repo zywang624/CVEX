@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import sys
 
 from cvex.consts import *
 from cvex.logger import get_logger
@@ -37,20 +38,15 @@ class IPManager:
                         self.ips[destination] = ip
 
     def generate_new_ip(self, destination: str) -> str:
-        if not self.ips:
-            return "192.168.56.1"
         for c in range(1, 255):
-            found = False
-            for destination, ip in self.ips.items():
-                if ip.endswith(f".{c}"):
-                    found = True
-                    break
-            if not found:
-                ip = f"192.168.56.{c}"
-                self.log.debug("Generated new IP for %s: %s", destination, ip)
-                self.ips[destination] = ip
-                return ip
-        return "192.168.56.256"
+            ip = f"192.168.56.{c}"
+            if ip in self.ips.values():
+                continue
+            self.log.debug("Generated new IP for %s: %s", destination, ip)
+            self.ips[destination] = ip
+            return ip
+        self.log.error("Failed to generate new IP for %s; address space exceeded", destination)
+        sys.exit(1)
 
     def read_private_ip(self, destination: str) -> str | None:
         vagrantfile = f"{destination}/Vagrantfile"
