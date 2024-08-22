@@ -8,7 +8,6 @@ import yaml
 
 from cvex.consts import *
 from cvex.exploit import Exploit
-from cvex.ip_manager import IPManager
 from cvex.logger import get_logger, set_log_level
 from cvex.vm import VM
 
@@ -120,20 +119,18 @@ def main():
         log.critical("Configuration mismatch")
         sys.exit(1)
 
-    ips = IPManager()
     vms = []
 
     if len(infrastructure['vms']) > 1:
         vm = VM([],
                 ROUTER_VM,
                 ROUTER_CONFIG,
-                ips,
                 cve=ROUTER_VM,
                 destination=os.path.abspath(os.path.expanduser(ROUTER_DESTINATION)))
         vm.run_vm()
         vms.append(vm)
     for vm_name, config in infrastructure['vms'].items():
-        vm = VM(vms, vm_name, config, ips, cve=infrastructure['cve'])
+        vm = VM(vms, vm_name, config, cve=infrastructure['cve'])
         vm.run_vm()
         vms.append(vm)
 

@@ -9,13 +9,12 @@ import tempfile
 import vagrant
 
 from cvex.consts import *
-from cvex.ip_manager import IPManager
 from cvex.logger import get_logger
 from cvex.ssh import SSH
 
+current_ip = 2
 
 class VM:
-    ips: IPManager
     vms: list
     log: logging.Logger
     cve: str
@@ -51,8 +50,7 @@ class VM:
         else:
             return os.path.join(path, str(max_instance + 1))
 
-    def __init__(self, vms: list, vm_name: str, config: dict, ips: IPManager, cve: str = "", destination: str = ""):
-        self.ips = ips
+    def __init__(self, vms: list, vm_name: str, config: dict, cve: str = "", destination: str = ""):
         self.vms = vms
         self.log = get_logger(vm_name)
         self.cve = cve
@@ -73,7 +71,9 @@ class VM:
             self.trace = config['trace']
         else:
             self.trace = None
-        self.ip = None
+        global current_ip
+        self.ip = f"192.168.56.{current_ip}"
+        current_ip += 1
 
     def _configure_vagrantfile(self):
         vagrantfile = os.path.join(self.destination, "Vagrantfile")
@@ -222,9 +222,7 @@ class VM:
     def _init_vm(self):
         self.log.info("Initializing a new VM %s at %s...", self.vm_name, self.destination)
         self.vag.init(box_url=self.image)
-        self.ip = self.ips.generate_new_ip(self.destination)
         self._configure_vagrantfile()
-        self.ips.write_private_ip(self.destination, self.image, self.ip)
 
     def _start_vm(self):
         self.log.info("Starting the VM %s...", self.vm_name)
@@ -297,7 +295,6 @@ class VM:
             self._init_vm()
             self._start_vm()
         elif status[0].state == "running":
-            self.ip = self.ips.read_private_ip(self.destination)
             self.log.info("VM %s (%s) is already running", self.vm_name, self.ip)
             self.ssh = SSH(self.vag, self.vm_name)
 
@@ -317,7 +314,6 @@ class VM:
             snapshots = self.vag.snapshot_list()
 
             if self.cve in snapshots:
-                self.ip = self.ips.read_private_ip(self.destination)
                 self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, self.cve)
                 try:
                     self.vag.snapshot_restore(self.cve)
@@ -325,7 +321,6 @@ class VM:
                     self.vag.reload()
                 self.ssh = SSH(self.vag, self.vm_name)
             elif INIT_SNAPSHOT in snapshots:
-                self.ip = self.ips.read_private_ip(self.destination)
                 self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, INIT_SNAPSHOT)
                 try:
                     self.vag.snapshot_restore(INIT_SNAPSHOT)
@@ -336,7 +331,6 @@ class VM:
                 self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
                 self.vag.snapshot_save(self.cve)
             else:
-                self.ip = self.ips.read_private_ip(self.destination)
                 self._start_vm()
 
     def destroy(self):
