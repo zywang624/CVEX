@@ -92,6 +92,7 @@ class VM:
             f.write((f"\n"
                      f"  config.vm.box_version = \"{self.version}\"\n"
                      f"  config.vm.hostname = \"{self.vm_name}\"\n"
+                     f"  config.vm.network \"private_network\", ip: \"192.168.56.2\"\n"
                      f"\n"
                      ))
             f.write(data[pos + len(config):])
@@ -127,7 +128,7 @@ class VM:
             dest_crt = f"C:\\Users\\{self.vag.user()}\\mitmproxy-ca-cert.cer"
             self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
             self.ssh.run_command((f"powershell \""
-                                  f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\LocalMachine\Root\""))
+                                  f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\\LocalMachine\\Root\""))
             # Install the empty Certificate Revocation List
             local_crl = tempfile.NamedTemporaryFile()
             router.ssh.download_file(local_crl.name, f"/home/{router.vag.user()}/.mitmproxy/root.crl")
@@ -251,12 +252,15 @@ class VM:
         ips = "\r\n"
         for vm in vms:
             if vm != self:
-                ips += f"{vm.ip} {vm.vm_name}\r\n"
-        self.log.debug("Setting ip hosts: %s", ips)
-        hosts += ips
-        with open(local_hosts.name, "w") as f:
-            f.write(hosts)
-        self.ssh.upload_file(local_hosts.name, remote_hosts)
+                line = f"{vm.ip} {vm.vm_name}\r\n"
+                if line not in hosts:
+                    ips += line
+        if ips != "\r\n":
+            self.log.debug("Setting ip hosts: %s", ips)
+            hosts += ips
+            with open(local_hosts.name, "w") as f:
+                f.write(hosts)
+            self.ssh.upload_file(local_hosts.name, remote_hosts)
 
     def _update_linux_hosts(self, vms: list):
         remote_hosts = "/etc/hosts"
@@ -267,13 +271,16 @@ class VM:
         ips = "\n"
         for vm in vms:
             if vm != self:
-                ips += f"{vm.ip} {vm.vm_name}\r\n"
-        self.log.debug("Setting ip hosts: %s", ips)
-        hosts += ips
-        with open(local_hosts.name, "w") as f:
-            f.write(hosts)
-        self.ssh.upload_file(local_hosts.name, "/tmp/hosts")
-        self.ssh.run_command(f"sudo mv /tmp/hosts {remote_hosts}")
+                line = f"{vm.ip} {vm.vm_name}\n"
+                if line not in hosts:
+                    ips += line
+        if ips != "\n":
+            self.log.debug("Setting ip hosts: %s", ips)
+            hosts += ips
+            with open(local_hosts.name, "w") as f:
+                f.write(hosts)
+            self.ssh.upload_file(local_hosts.name, "/tmp/hosts")
+            self.ssh.run_command(f"sudo mv /tmp/hosts {remote_hosts}")
 
     def update_hosts(self, vms: list):
         if self.vm_type == "windows":

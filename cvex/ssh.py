@@ -37,7 +37,7 @@ class SSH:
         message.add_string(signal.Signals.SIGTERM.name[3:])
         runner.channel.transport._send_user_message(message)
 
-    def run_command(self, command: str, is_async: bool = False, until: str = "") -> str | tuple:
+    def run_command(self, command: str, is_async: bool = False, until: str = "") -> str | fabric.runners.Remote:
         self.log.info("Executing '%s'...", command)
         if is_async:
             result = self.ssh.run(command, asynchronous=is_async, hide=True)
