@@ -7,40 +7,97 @@ import sys
 import yaml
 
 from cvex.consts import *
-from cvex.exploit import Exploit
 from cvex.logger import get_logger, set_log_level
-from cvex.vm import VM
+from cvex.vm import VM, VMTemplate
+from cvex.windowsvm import WindowsVM
+from cvex.linuxvm import LinuxVM
+from cvex.routervm import RouterVM
 
 
-def verify_infrastructure_config(config: dict, config_dir: str) -> dict | None:
-    if 'cve' not in config:
-        return None
-    if 'ports' in config:
-        if type(config['ports']) != int and type(config['ports']) != list:
-            return None
-        if type(config['ports']) == list:
-            for port in config['ports']:
-                if type(port) != int:
-                    return None
-    if 'vms' not in config or not config['vms']:
-        return None
-    if ROUTER_VM in config['vms']:
-        return None
-    for vm_name, data in config['vms'].items():
-        if 'image' not in data or 'version' not in data:
-            return None
-        if 'type' not in data or data['type'] not in ["linux", "windows"]:
-            return None
-        if 'playbook' in data:
-            playbook = os.path.join(config_dir, data['playbook'])
-            if not os.path.exists(playbook):
-                return None
-            config['vms'][vm_name]['playbook'] = playbook
-    if 'exploit' not in config or 'vm' not in config['exploit'] or 'command' not in config['exploit']:
-        return None
-    if config['exploit']['vm'] not in config['vms']:
-        return None
-    return config
+class CVEX:
+    vm_templates: list[VMTemplate]
+    ports: list[int]
+
+    def __init__(self, cve: str):
+        self.log = get_logger("CVEX")
+
+        cvex_yml = Path("records", cve, CVEX_FILE)
+        if not cvex_yml.exists():
+            self.log.critical("%s does not exist", cvex_yml)
+            sys.exit(1)
+
+        try:
+            with open(cvex_yml, "r") as f:
+                cvex = yaml.safe_load(f)
+        except:
+            self.log.critical("%s is not a YAML file", cvex_yml)
+            sys.exit(1)
+
+        if 'blueprint' not in cvex:
+            self.log.critical("%s: configuration mismatch", cvex_yml)
+            sys.exit(1)
+
+        blueprint_yml = Path("blueprints", cvex['blueprint'], "blueprint.yml")
+        if not blueprint_yml.exists():
+            self.log.critical("Blueprint %r does not exist", blueprint_yml)
+            sys.exit(1)
+        try:
+            with open(blueprint_yml, "r") as f:
+                vm_templates = yaml.safe_load(f)
+        except:
+            self.log.critical("%s is not a YAML file", blueprint_yml.name)
+            sys.exit(1)
+        self.vm_templates = []
+        for vm_name, data in vm_templates.items():
+            if 'image' not in data or 'version' not in data or 'type' not in data:
+                self.log.critical("%s: configuration mismatch", blueprint_yml)
+                sys.exit(1)
+            playbooks = []
+            if 'playbook' in data:
+                playbooks.append(Path("blueprints", cvex['blueprint'], data['playbook']))
+            if vm_name not in cvex:
+                self.log.critical("%s: configuration mismatch", cvex_yml)
+                sys.exit(1)
+            if 'trace' in cvex[vm_name]:
+                trace = cvex[vm_name]['trace']
+            else:
+                trace = None
+            if 'playbook' in cvex[vm_name]:
+                playbooks.append(Path("records", cve, cvex[vm_name]['playbook']))
+            if 'command' in cvex[vm_name]:
+                command = cvex[vm_name]['command']
+            else:
+                command = None
+            self.vm_templates.append(VMTemplate(vm_name,
+                                             data['image'],
+                                             data['version'],
+                                             data['type'],
+                                             trace,
+                                             playbooks,
+                                             command))
+        if not self.vm_templates:
+            self.log.critical("%s: configuration mismatch", blueprint_yml)
+            sys.exit(1)
+
+        if 'ports' in cvex:
+            if type(cvex['ports']) == int:
+                self.ports = [cvex['ports']]
+            elif type(cvex['ports']) == list:
+                self.ports = []
+                for port in cvex['ports']:
+                    if type(port) != int:
+                        self.log.critical("%s: bad ports", cvex_yml)
+                        sys.exit(1)
+                    self.ports.append(port)
+            else:
+                self.log.critical("%s: bad ports", cvex_yml)
+                sys.exit(1)
+        else:
+            self.ports = [DEFAULT_PORT]
+        for port in self.ports:
+            if port < 1 or port > 0xFFFF:
+                self.log.critical("%s: bad ports", cvex_yml)
+                sys.exit(1)
 
 
 def main():
@@ -48,7 +105,7 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--config", help="Directory with the configuration of the infrastructure")
+    parser.add_argument("-c", "--cve", help="CVE name in format 'CVE-XXXXXX-XX'")
     parser.add_argument("-o", "--output", help="Directory for generated logs", default="out")
     parser.add_argument("-l", "--list", help="List all cached VMs", default=False, action="store_true")
     parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
@@ -59,44 +116,36 @@ def main():
         set_log_level(logging.DEBUG)
     log = get_logger("main")
 
-    CVEX_ROOT.mkdir(exist_ok=True)
-
     if args.list or args.destroy != None:
-        images = [f.name for f in os.scandir(os.path.expanduser(CVEX_ROOT)) if f.is_dir()]
+        images = [f.name for f in os.scandir(CVEX_ROOT) if f.is_dir()]
         if not images:
             log.info("There are no cached VMs")
             sys.exit(0)
         if args.list:
             log.info("Cached VMs:")
-        if ROUTER_VM in images:
+        if ROUTER_VM_NAME in images:
             if args.list:
-                log.info("%s", ROUTER_VM)
-            if args.destroy == "" or args.destroy == ROUTER_VM:
-                vm = VM([],
-                        ROUTER_VM,
-                        ROUTER_CONFIG,
-                        cve=ROUTER_VM,
-                        destination=os.path.expanduser(ROUTER_DESTINATION))
-                vm.destroy()
+                log.info("%s", ROUTER_VM_NAME)
+            if args.destroy == "" or args.destroy == ROUTER_VM_NAME:
+                router = RouterVM()
+                router.destroy()
         for image in images:
-            if image != ROUTER_VM:
-                versions = [f.name for f in os.scandir(os.path.join(os.path.expanduser(CVEX_ROOT), image)) if
-                            f.is_dir()]
-                for version in versions:
+            if image == ROUTER_VM_NAME:
+                continue
+            versions = [f.name for f in os.scandir(Path(CVEX_ROOT, image)) if f.is_dir()]
+            for version in versions:
+                instances = [f.name for f in os.scandir(Path(CVEX_ROOT, image, version)) if f.is_dir()]
+                for instance in instances:
                     if args.list:
-                        log.info("%s/%s", image, version)
-                    if args.destroy == "" or args.destroy == f"{image}/{version}":
-                        config = {
-                            "image": image.replace("_", "/"),
-                            "version": version,
-                            "type": "unknown"
-                        }
-                        vm = VM("unknown", config)
+                        log.info("%s/%s/%s", image, version, instance)
+                    if args.destroy == "" or args.destroy == f"{image}/{version}/{instance}":
+                        destination = Path(CVEX_ROOT, image, version, instance)
+                        vm = VM([], VMTemplate("stub", "stub", "stub", VMTemplate.VM_TYPE_LINUX), "stub", destination=destination)
                         vm.destroy()
-        try:
-            shutil.rmtree(CVEX_ROOT)
-        except:
-            pass
+                        try:
+                            shutil.rmtree(destination)
+                        except:
+                            pass
         sys.exit(0)
 
     output_dir = Path(args.output)
@@ -106,51 +155,63 @@ def main():
         log.critical("%s is not a directory", output_dir)
         sys.exit(1)
 
-    infrastructure_file = Path(args.config, INFRASTRUCTURE_FILE)
-    if not infrastructure_file.exists():
-        parser.print_help()
+    if args.cve is None:
+        log.critical("CVE number is mandatory")
         sys.exit(1)
 
-    with open(infrastructure_file, "r") as f:
-        infrastructure = yaml.safe_load(f)
+    # Load cvex.yml of the CVE record
+    cvex = CVEX(args.cve)
 
-    infrastructure = verify_infrastructure_config(infrastructure, args.config)
-    if not infrastructure:
-        log.critical("Configuration mismatch")
-        sys.exit(1)
-
+    # Start all VMs
     vms = []
-
-    if len(infrastructure['vms']) > 1:
-        vm = VM([],
-                ROUTER_VM,
-                ROUTER_CONFIG,
-                cve=ROUTER_VM,
-                destination=os.path.abspath(os.path.expanduser(ROUTER_DESTINATION)))
-        vm.run_vm()
-        vms.append(vm)
-    for vm_name, config in infrastructure['vms'].items():
-        vm = VM(vms, vm_name, config, cve=infrastructure['cve'])
-        vm.run_vm()
+    router = RouterVM()
+    router.run()
+    vms.append(router)
+    for vm_template in cvex.vm_templates:
+        if vm_template.vm_type == VMTemplate.VM_TYPE_LINUX:
+            vm = LinuxVM(vms, vm_template, args.cve)
+            vm.run(router)
+        elif vm_template.vm_type == VMTemplate.VM_TYPE_WINDOWS:
+            vm = WindowsVM(vms, vm_template, args.cve)
+            vm.run(router)
         vms.append(vm)
 
+    # Perform pre-exploitation configuration
+    router.set_network_interface_ip(router.ip)
     for vm in vms:
-        if vm.vm_name != ROUTER_VM:
-            vm.update_hosts(vms)
+        if vm == router:
+            continue
+        vm.set_network_interface_ip(router.ip)
+        vm.update_hosts(vms)
 
-    if 'ports' in infrastructure:
-        if type(infrastructure['ports']) == list:
-            ports = infrastructure['ports']
-        else:
-            ports = [infrastructure['ports']]
-    else:
-        ports = [DEFAULT_MITMDUM_PORT]
+    # Start network traffic sniffing, mitmproxy, API tracing
+    router.start_sniffing(cvex.ports)
+    for vm in vms:
+        vm.start_api_tracing()
 
-    exploit = Exploit(vms, ports)
-    exploit.run(infrastructure['exploit']['vm'], infrastructure['exploit']['command'], args.output)
+    # Execute commands
+    succeed = True
+    for vm in vms:
+        command = vm.command
+        if command:
+            for vm2 in vms:
+                command = command.replace(f"%{vm2.vm_name}%", vm2.ip)
+            try:
+                vm.ssh.run_command(command)
+            except Exception as e:
+                log.critical("Command failed: %r", e)
+                succeed = False
+                break
 
-    # for vm in vms:
-    #    vm.stop()
+    # Stop network traffic sniffing, mitmproxy, API tracing
+    if succeed:
+        for vm in vms:
+            vm.stop_api_tracing(args.output)
+        router.stop_sniffing(args.output)
+
+    # Stop all VMs
+    #for vm in vms:
+    #   vm.stop()
 
     sys.exit(0)
 

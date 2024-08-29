@@ -1,16 +1,15 @@
 from pathlib import Path
 
-INFRASTRUCTURE_FILE = "infrastructure.yml"
-
 CVEX_ROOT = Path.home() / ".cvex"
 
-ROUTER_VM = "router"
-ROUTER_DESTINATION = f"{CVEX_ROOT}/{ROUTER_VM}"
-ROUTER_CONFIG = {
-    "image": "bento/ubuntu-22.04",
-    "version": "202404.23.0",
-    "type": "linux"
-}
+DEFAULT_PORT = 443
+
+CVEX_FILE = "cvex.yml"
+
+ROUTER_VM_NAME = "router"
+ROUTER_VM_DESTINATION = CVEX_ROOT / ROUTER_VM_NAME
+ROUTER_VM_IMAGE = "bento/ubuntu-22.04"
+ROUTER_VM_VERSION = "202404.23.0"
 
 INIT_SNAPSHOT = "clean"
 
