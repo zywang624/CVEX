@@ -3,8 +3,7 @@ import time
 import fabric
 
 from cvex.consts import *
-from cvex.logger import get_logger
-from cvex.vm import VMTemplate
+from cvex.vm import VMTemplate, VM
 from cvex.linuxvm import LinuxVM
 
 
@@ -16,7 +15,7 @@ class RouterVM(LinuxVM):
                               VMTemplate.VM_TYPE_LINUX)
         super().__init__([], template, ROUTER_VM_NAME, destination=ROUTER_VM_DESTINATION, keep=keep)
 
-    def init(self):
+    def init(self, router: VM | None = None):
         self.log.info("Initializing the router VM")
         self.ssh.run_command("wget https://downloads.mitmproxy.org/10.3.1/mitmproxy-10.3.1-linux-x86_64.tar.gz")
         self.ssh.run_command("sudo tar -xf mitmproxy-10.3.1-linux-x86_64.tar.gz -C /usr/bin")
