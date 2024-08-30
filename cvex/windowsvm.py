@@ -11,8 +11,9 @@ class WindowsVM(VM):
     def __init__(self,
                  vms: list,
                  template: VMTemplate,
-                 cve: str):
-        super().__init__(vms, template, cve)
+                 cve: str,
+                 keep: bool = False):
+        super().__init__(vms, template, cve, keep=keep)
 
     def init(self, router: VM | None = None):
         self.log.info("Initializing the Windows VM")

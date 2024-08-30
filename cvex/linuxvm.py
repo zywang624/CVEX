@@ -13,8 +13,9 @@ class LinuxVM(VM):
                  vms: list,
                  template: VMTemplate,
                  cve: str,
-                 destination: Path | None = None):
-        super().__init__(vms, template, cve, destination)
+                 destination: Path | None = None,
+                 keep: bool = False):
+        super().__init__(vms, template, cve, destination, keep)
 
     def init(self, router: VM | None = None):
         self.log.info("Initializing the Linux VM")

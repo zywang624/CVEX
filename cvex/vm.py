@@ -65,6 +65,7 @@ class VM:
     files: dict
     ip: str
     ssh: SSH
+    keep: bool
 
     def _get_vm_destination(self, vms: list, image: str, version: str) -> Path:
         path = Path(CVEX_ROOT, image.replace("/", "_"), version)
@@ -91,7 +92,8 @@ class VM:
                  vms: list,
                  template: VMTemplate,
                  cve: str,
-                 destination: Path | None = None):
+                 destination: Path | None = None,
+                 keep: bool = False):
         self.log = get_logger(template.vm_name)
         self.vm_name = template.vm_name
         self.image = template.image
@@ -109,6 +111,7 @@ class VM:
         global current_ip
         self.ip = f"192.168.56.{current_ip}"
         current_ip += 1
+        self.keep = keep
 
     def _configure_vagrantfile(self):
         vagrantfile = os.path.join(self.destination, "Vagrantfile")
@@ -191,7 +194,7 @@ class VM:
         if status[0].state == "not_created":
             self._init_vm()
             self._start_vm(router)
-        elif status[0].state == "running":
+        elif self.keep and status[0].state == "running":
             self.log.info("VM %s (%s) is already running", self.vm_name, self.ip)
             self.ssh = SSH(self.vag, self.vm_name)
 

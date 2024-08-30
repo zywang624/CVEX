@@ -9,12 +9,12 @@ from cvex.linuxvm import LinuxVM
 
 
 class RouterVM(LinuxVM):
-    def __init__(self):
+    def __init__(self, keep: bool = False):
         template = VMTemplate(ROUTER_VM_NAME,
                               ROUTER_VM_IMAGE,
                               ROUTER_VM_VERSION,
                               VMTemplate.VM_TYPE_LINUX)
-        super().__init__([], template, ROUTER_VM_NAME, destination=ROUTER_VM_DESTINATION)
+        super().__init__([], template, ROUTER_VM_NAME, destination=ROUTER_VM_DESTINATION, keep=keep)
 
     def init(self):
         self.log.info("Initializing the router VM")
@@ -31,7 +31,7 @@ class RouterVM(LinuxVM):
         try:
             stdouts = 0
             while True:
-                if runner.program_finished.is_set():
+                if runner.channel.closed:
                     return
                 new_stdouts = len(runner.stdout)
                 if new_stdouts > stdouts:
@@ -77,8 +77,8 @@ class RouterVM(LinuxVM):
         self.log.info("Wait for 5 seconds to let tcpdump and mitmdump flush logs on disk...")
         time.sleep(5)
 
-        # self.tcpdump_thread.join()
-        # self.mitmdump_thread.join()
+        self.tcpdump_thread.join()
+        self.mitmdump_thread.join()
 
         self.ssh.download_file(f"{output_dir}/{TCPDUMP_LOG}", TCPDUMP_LOG_PATH)
         self.ssh.download_file(f"{output_dir}/{MITMDUMP_LOG}", MITMDUMP_LOG_PATH)

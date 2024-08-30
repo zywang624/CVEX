@@ -110,6 +110,7 @@ def main():
     parser.add_argument("-l", "--list", help="List all cached VMs", default=False, action="store_true")
     parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
     parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")
+    parser.add_argument("-k", "--keep", help="Keep VMs running", default=False, action="store_true")
     args = parser.parse_args()
 
     if args.verbose:
@@ -164,15 +165,15 @@ def main():
 
     # Start all VMs
     vms = []
-    router = RouterVM()
+    router = RouterVM(args.keep)
     router.run()
     vms.append(router)
     for vm_template in cvex.vm_templates:
         if vm_template.vm_type == VMTemplate.VM_TYPE_LINUX:
-            vm = LinuxVM(vms, vm_template, args.cve)
+            vm = LinuxVM(vms, vm_template, args.cve, keep=args.keep)
             vm.run(router)
         elif vm_template.vm_type == VMTemplate.VM_TYPE_WINDOWS:
-            vm = WindowsVM(vms, vm_template, args.cve)
+            vm = WindowsVM(vms, vm_template, args.cve, args.keep)
             vm.run(router)
         vms.append(vm)
 
@@ -210,8 +211,9 @@ def main():
         router.stop_sniffing(args.output)
 
     # Stop all VMs
-    #for vm in vms:
-    #   vm.stop()
+    if not args.keep:
+        for vm in vms:
+            vm.stop()
 
     sys.exit(0)
 
