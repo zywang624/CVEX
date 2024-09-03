@@ -1,0 +1,8 @@
+windows1:
+  image: "gusztavvargadr/windows-10"
+  version: "2202.0.2404"
+  type: "windows"
+windows2:
+  image: "gusztavvargadr/windows-10"
+  version: "2202.0.2404"
+  type: "windows"
