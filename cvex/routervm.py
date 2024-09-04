@@ -13,7 +13,7 @@ class RouterVM(LinuxVM):
                               ROUTER_VM_IMAGE,
                               ROUTER_VM_VERSION,
                               VMTemplate.VM_TYPE_LINUX)
-        super().__init__([], template, ROUTER_VM_NAME, destination=ROUTER_VM_DESTINATION, keep=keep)
+        super().__init__([], template, "", destination=ROUTER_VM_DESTINATION, keep=keep)
 
     def init(self, router: VM | None = None):
         self.playbooks.insert(0, "ansible/router.yml")

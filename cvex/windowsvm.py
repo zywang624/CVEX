@@ -125,6 +125,10 @@ class WindowsVM(VM):
 
     def stop_api_tracing(self, output_dir: str):
         self.ssh.run_command("C:\\Tools\\Procmon.exe /AcceptEula /Terminate")
+        try:
+            self.ssh.run_command("taskkill /IM Procmon.exe /F")
+        except:
+            pass
         self.ssh.run_command(
             f"C:\Tools\Procmon.exe /AcceptEula /OpenLog {PROCMON_PML_LOG_PATH} /SaveAs {PROCMON_XML_LOG_PATH}")
         self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_PML_LOG}", f"/{PROCMON_PML_LOG_PATH}")

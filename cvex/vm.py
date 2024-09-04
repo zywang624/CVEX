@@ -67,8 +67,8 @@ class VM:
     ssh: SSH
     keep: bool
 
-    def _get_vm_destination(self, vms: list, image: str, version: str) -> Path:
-        path = Path(CVEX_ROOT, image.replace("/", "_"), version)
+    def _get_vm_destination(self, vms: list) -> Path:
+        path = Path(CVEX_ROOT, self.image.replace("/", "_"), self.version)
         if not path.exists():
             return Path(path, "1")
         instances = [f.name for f in os.scandir(path) if f.is_dir()]
@@ -84,6 +84,16 @@ class VM:
                 if vm.destination == instance_path:
                     free_instances.remove(instance)
         if free_instances:
+            snapshot = f"{self.cve}/{self.vm_name}"
+            self.log.info("Looking for a VM with %s snapshot...", snapshot)
+            for instance in free_instances:
+                destination = Path(path, instance)
+                vag = vagrant.Vagrant(destination)
+                snapshots = vag.snapshot_list()
+                if snapshot in snapshots:
+                    self.log.debug("Found: %s...", destination)
+                    return destination
+            self.log.debug("Not found, taking: %s...", destination)
             return Path(path, free_instances[0])
         else:
             return Path(path, str(max_instance + 1))
@@ -106,7 +116,7 @@ class VM:
         if destination:
             self.destination = destination
         else:
-            self.destination = self._get_vm_destination(vms, self.image, self.version)
+            self.destination = self._get_vm_destination(vms)
         self.vag = vagrant.Vagrant(self.destination)
         global current_ip
         self.ip = f"192.168.56.{current_ip}"
@@ -163,6 +173,13 @@ class VM:
         self.vag.init(box_url=self.image)
         self._configure_vagrantfile()
 
+    def _get_snapshot_name(self):
+        if self.cve:
+            return f"{self.cve}/{self.vm_name}"
+        else:
+            return self.vm_name
+
+
     def _start_vm(self, router = None):
         self.log.info("Starting the VM %s...", self.vm_name)
         try:
@@ -178,8 +195,9 @@ class VM:
         self.ssh = SSH(self.vag, self.vm_name)
         self._provision_vm(router)
 
-        self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
-        self.vag.snapshot_save(self.cve)
+        snapshot = self._get_snapshot_name()
+        self.log.info("Creating snapshot '%s' for VM %s (%s)...", snapshot, self.vm_name, self.ip)
+        self.vag.snapshot_save(snapshot)
 
     def run(self, router = None):
         if not os.path.exists(self.destination):
@@ -190,6 +208,7 @@ class VM:
 
         self.log.info("Retrieving status of %s...", self.vm_name)
         status = self.vag.status()
+        snapshot = self._get_snapshot_name()
 
         if status[0].state == "not_created":
             self._init_vm()
@@ -205,18 +224,18 @@ class VM:
                 self.log.info("Creating snapshot '%s' for VM %s (%s)...", INIT_SNAPSHOT, self.vm_name, self.ip)
                 self.vag.snapshot_save(INIT_SNAPSHOT)
 
-            if self.cve not in snapshots:
+            if snapshot not in snapshots:
                 self._provision_vm(router)
-                self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
-                self.vag.snapshot_save(self.cve)
+                self.log.info("Creating snapshot '%s' for VM %s (%s)...", snapshot, self.vm_name, self.ip)
+                self.vag.snapshot_save(snapshot)
         else:
             self.log.info("Retrieving snapshot list of %s...", self.vm_name)
             snapshots = self.vag.snapshot_list()
 
-            if self.cve in snapshots:
-                self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, self.cve)
+            if snapshot in snapshots:
+                self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, snapshot)
                 try:
-                    self.vag.snapshot_restore(self.cve)
+                    self.vag.snapshot_restore(snapshot)
                 except:
                     self.vag.reload()
                 self.ssh = SSH(self.vag, self.vm_name)
@@ -229,8 +248,8 @@ class VM:
                 self.ssh = SSH(self.vag, self.vm_name)
                 self._provision_vm(router)
 
-                self.log.info("Creating snapshot '%s' for VM %s (%s)...", self.cve, self.vm_name, self.ip)
-                self.vag.snapshot_save(self.cve)
+                self.log.info("Creating snapshot '%s' for VM %s (%s)...", snapshot, self.vm_name, self.ip)
+                self.vag.snapshot_save(snapshot)
             else:
                 self._start_vm(router)
 
