@@ -1,0 +1,28 @@
+- name: Windows
+  hosts: all
+  tasks:
+    - name: Create C:\Tools
+      ansible.windows.win_file:
+        path: C:\Tools
+        state: directory
+    - name: Download Process Monitor
+      ansible.builtin.win_get_url:
+        url: https://download.sysinternals.com/files/ProcessMonitor.zip
+        dest: C:/Tools/ProcessMonitor.zip
+    - name: Unzip ProcessMonitor.zip
+      community.windows.win_unzip:
+        src: C:/Tools/ProcessMonitor.zip
+        dest: C:/Tools
+        delete_archive: yes
+    - name: Copy mitmproxy-ca-cert.cer
+      ansible.builtin.copy:
+        src: ~/.cvex/router/mitmproxy-ca-cert.cer
+        dest: C:/Tools
+    - name: Install mitmproxy-ca-cert.cer
+      ansible.builtin.win_shell: Import-Certificate -FilePath 'C:\Tools\mitmproxy-ca-cert.cer' -CertStoreLocation Cert:\LocalMachine\Root
+    - name: Copy root.crl
+      ansible.builtin.copy:
+        src: ~/.cvex/router/root.crl
+        dest: C:/Tools
+    - name: Install root.crl
+      ansible.builtin.win_command: certutil -addstore CA C:\Tools\root.crl

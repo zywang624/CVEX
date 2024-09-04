@@ -1,0 +1,48 @@
+- name: Router
+  hosts: all
+  tasks:
+    - name: Pull mitmproxy-10.3.1-linux-x86_64.tar.gz
+      ansible.builtin.unarchive:
+        src: https://downloads.mitmproxy.org/10.3.1/mitmproxy-10.3.1-linux-x86_64.tar.gz
+        dest: /usr/bin
+        remote_src: yes
+      become: true
+    - name: Run mitmdump
+      ansible.builtin.command:
+        cmd: mitmdump --mode transparent
+      register: sync_status
+      async: 10
+      poll: 0
+    - name: Wait for ~/.mitmproxy
+      ansible.builtin.wait_for:
+        path: ~/.mitmproxy/mitmproxy-ca.pem
+    - name: Kill mitmdump
+      ansible.builtin.command:
+        cmd: pkill mitmdump
+    - name: Copy certindex
+      ansible.builtin.copy:
+        src: ../data/certindex
+        dest: ~/.mitmproxy
+    - name: Copy default.cfg
+      ansible.builtin.copy:
+        src: ../data/default.cfg
+        dest: ~/.mitmproxy
+    - name: Generate CRL
+      ansible.builtin.command:
+        cmd: openssl ca -config default.cfg -gencrl -inform PEM -keyfile mitmproxy-ca.pem -cert mitmproxy-ca-cert.pem -out root.crl.pem
+        chdir: ~/.mitmproxy
+    - name: Convert CRL from PEM to DER
+      ansible.builtin.command:
+        cmd: openssl crl -inform PEM -in root.crl.pem -outform DER -out root.crl
+        chdir: ~/.mitmproxy
+    - name: Fetch root.crl
+      ansible.builtin.fetch:
+        src: ~/.mitmproxy/root.crl
+        dest: ~/.cvex/router/
+        flat: yes
+    - name: Fetch mitmproxy-ca-cert.cer
+      ansible.builtin.fetch:
+        src: ~/.mitmproxy/mitmproxy-ca-cert.cer
+        dest: ~/.cvex/router/
+        flat: yes
+        

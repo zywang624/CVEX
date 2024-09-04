@@ -16,15 +16,7 @@ class RouterVM(LinuxVM):
         super().__init__([], template, ROUTER_VM_NAME, destination=ROUTER_VM_DESTINATION, keep=keep)
 
     def init(self, router: VM | None = None):
-        self.log.info("Initializing the router VM")
-        self.ssh.run_command("wget https://downloads.mitmproxy.org/10.3.1/mitmproxy-10.3.1-linux-x86_64.tar.gz")
-        self.ssh.run_command("sudo tar -xf mitmproxy-10.3.1-linux-x86_64.tar.gz -C /usr/bin")
-        self.ssh.run_command("mitmdump --mode transparent", is_async=True, until="Transparent Proxy listening at")
-        self.ssh.run_command("pkill mitmdump")
-        self.ssh.upload_file("data/certindex", "certindex")
-        self.ssh.upload_file("data/default.cfg", "/home/vagrant/.mitmproxy/default.cfg")
-        self.ssh.run_command(f"openssl ca -config /home/{self.vag.user()}/.mitmproxy/default.cfg -gencrl -inform PEM -keyfile /home/{self.vag.user()}/.mitmproxy/mitmproxy-ca.pem -cert /home/{self.vag.user()}/.mitmproxy/mitmproxy-ca-cert.pem -out /home/{self.vag.user()}/.mitmproxy/root.crl.pem")
-        self.ssh.run_command(f"openssl crl -inform PEM -in /home/{self.vag.user()}/.mitmproxy/root.crl.pem -outform DER -out /home/{self.vag.user()}/.mitmproxy/root.crl")
+        self.playbooks.insert(0, "ansible/router.yml")
 
     def _read_output(self, runner: fabric.runners.Remote):
         try:

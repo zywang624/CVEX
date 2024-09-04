@@ -18,15 +18,7 @@ class LinuxVM(VM):
         super().__init__(vms, template, cve, destination, keep)
 
     def init(self, router: VM | None = None):
-        self.log.info("Initializing the Linux VM")
-        if router:
-            # Install the Certificate Authority (root) certificate
-            local_cert = tempfile.NamedTemporaryFile()
-            router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
-            remote_tmp_cert = "/tmp/mitmproxy-ca-cert.crt"
-            self.ssh.upload_file(local_cert.name, remote_tmp_cert)
-            self.ssh.run_command(f"sudo mv {remote_tmp_cert} /usr/local/share/ca-certificates")
-            self.ssh.run_command("sudo update-ca-certificates")
+        self.playbooks.insert(0, "ansible/linux.yml")
 
     def update_hosts(self, vms: list[VM]):
         remote_hosts = "/etc/hosts"

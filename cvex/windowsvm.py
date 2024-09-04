@@ -16,25 +16,7 @@ class WindowsVM(VM):
         super().__init__(vms, template, cve, keep=keep)
 
     def init(self, router: VM | None = None):
-        self.log.info("Initializing the Windows VM")
-        self.ssh.run_command("curl https://download.sysinternals.com/files/ProcessMonitor.zip -o ProcessMonitor.zip")
-        self.ssh.run_command("mkdir C:\\Tools")
-        self.ssh.run_command("tar -xf ProcessMonitor.zip -C C:\\Tools")
-
-        if router:
-            # Install the Certificate Authority (root) certificate
-            local_cert = tempfile.NamedTemporaryFile()
-            router.ssh.download_file(local_cert.name, f"/home/{router.vag.user()}/.mitmproxy/mitmproxy-ca-cert.cer")
-            dest_crt = f"C:\\Users\\{self.vag.user()}\\mitmproxy-ca-cert.cer"
-            self.ssh.upload_file(local_cert.name, f"/{dest_crt}")
-            self.ssh.run_command((f"powershell \""
-                                  f"Import-Certificate -FilePath '{dest_crt}' -CertStoreLocation Cert:\\LocalMachine\\Root\""))
-            # Install the empty Certificate Revocation List
-            local_crl = tempfile.NamedTemporaryFile()
-            router.ssh.download_file(local_crl.name, f"/home/{router.vag.user()}/.mitmproxy/root.crl")
-            dest_crl = f"C:\\Users\\{self.vag.user()}\\root.crl"
-            self.ssh.upload_file(local_crl.name, f"/{dest_crl}")
-            self.ssh.run_command(f"certutil -addstore CA {dest_crl}")
+        self.playbooks.insert(0, "ansible/windows.yml")
 
     def update_hosts(self, vms: list[VM]):
         remote_hosts = "/C:\\Windows\\System32\\drivers\\etc\\hosts"
