@@ -160,9 +160,9 @@ class VM:
         self.init(router)
         if self.playbooks:
             inventory = self.get_ansible_inventory()
-            self.log.info("Inventory %s has been created for VM %s", inventory, self.vm_name)
+            self.log.info("Inventory %s has been created", inventory)
             for playbook in self.playbooks:
-                self.log.info("Executing Ansible playbook %s for %s...", playbook, self.vm_name)
+                self.log.info("Executing Ansible playbook %s...", playbook)
                 # ansible_playbook_runner.Runner([inventory], self.playbook).run()
                 result = self._run_shell_command(["ansible-playbook", "-i", inventory, playbook], show_progress=True)
                 if b"unreachable=0" not in result or b"failed=0" not in result:
@@ -185,7 +185,7 @@ class VM:
         try:
             self.vag.up()
         except:
-            self.log.critical("VM %s timed out. Please wait until the VM is started and then re-start CVEX.",
+            self.log.critical("VM %s timed out. Please wait until the VM is started and then re-start CVEX with the '-k' parameter.",
                               self.vm_name)
             sys.exit(1)
 
@@ -211,6 +211,8 @@ class VM:
         snapshot = self._get_snapshot_name()
 
         if status[0].state == "not_created":
+            shutil.rmtree(self.destination)
+            os.makedirs(self.destination)
             self._init_vm()
             self._start_vm(router)
         elif self.keep and status[0].state == "running":

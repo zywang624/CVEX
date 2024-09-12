@@ -117,7 +117,10 @@ class WindowsVM(VM):
             self.ssh.run_command(f"rmdir /S /Q {CVEX_TEMP_FOLDER_WINDOWS}")
         except:
             pass
-        self.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_WINDOWS}")
+        try:
+            self.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_WINDOWS}")
+        except:
+            pass
 
         remote_config_path = f"{CVEX_TEMP_FOLDER_WINDOWS}\\config.pmc"
         if self.trace:
