@@ -2,6 +2,7 @@ import re
 import sys
 import tempfile
 import procmon_parser
+import time
 
 from cvex.consts import *
 from cvex.vm import VM, VMTemplate
@@ -74,10 +75,27 @@ class WindowsVM(VM):
         return inventory
 
     def set_network_interface_ip(self, router_ip: str):
+        netsh_interface = self.ssh.run_command("netsh interface ipv4 show inter")
+        id = re.search(r"(\d+).+?Ethernet 2", netsh_interface)
+        if not id:
+            self.log.critical("'netsh interface ipv4 show inter' returned unknown data:\n%s", netsh_interface)
+            sys.exit(1)
+        id = id.group(1)
+        # Prevents activation of "Autoconfiguration IPv4 Address"
+        self.ssh.run_command(f"netsh interface ipv4 set interface {id} dadtransmits=0 store=persistent")
+        # Sometimes it exits with "Access denied" even though the IP sets up successfully
         try:
             self.ssh.run_command((f"powershell \""
                                 f"Get-NetAdapter -Name 'Ethernet 2' | "
                                 f"New-NetIPAddress -IPAddress {self.ip} -DefaultGateway {router_ip} -PrefixLength 24\""))
+        except:
+            pass
+        try:
+            self.ssh.run_command("powershell \"Disable-NetAdapter -Name 'Ethernet 2' -Confirm:$False\"")
+        except:
+            pass
+        try:
+            self.ssh.run_command("powershell \"Enable-NetAdapter -Name 'Ethernet 2' -Confirm:$False\"")
         except:
             pass
         self.ssh.run_command("route DELETE 192.168.56.0")
@@ -125,10 +143,6 @@ class WindowsVM(VM):
 
     def stop_api_tracing(self, output_dir: str):
         self.ssh.run_command("C:\\Tools\\Procmon.exe /AcceptEula /Terminate")
-        try:
-            self.ssh.run_command("taskkill /IM Procmon.exe /F")
-        except:
-            pass
         self.ssh.run_command(
             f"C:\Tools\Procmon.exe /AcceptEula /OpenLog {PROCMON_PML_LOG_PATH} /SaveAs {PROCMON_XML_LOG_PATH}")
         self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_PML_LOG}", f"/{PROCMON_PML_LOG_PATH}")
