@@ -1,7 +1,8 @@
 import re
-import sys
+import time
 import tempfile
 import yaml
+import os
 
 from invoke import UnexpectedExit
 
@@ -106,7 +107,6 @@ class LinuxVM(VM):
 
 
     def start_api_tracing(self):
-        self.strace = {}
         if not self.trace:
             return
         try:
@@ -114,27 +114,27 @@ class LinuxVM(VM):
         except:
             pass
         try:
+            self.ssh.run_command("sudo pkill python3")
+        except:
+            pass
+        try:
             self.ssh.run_command(f"rm -rf {CVEX_TEMP_FOLDER_LINUX}")
         except:
             pass
         self.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
-        try:
-            procs = self.ssh.run_command(f"ps -ax | egrep \"{self.trace}\" | grep -v grep")
-        except UnexpectedExit:
-            procs = None
-        if not procs:
-            self.log.critical("VM %s doesn't have processes that match '%s'", vm.vm_name, vm.trace)
-            sys.exit(1)
-        for pid, proc in re.findall(rf"(\d+).+? ({self.trace})", procs):
-            log = f"{CVEX_TEMP_FOLDER_LINUX}/{self.vm_name}_strace_{proc}_{pid}.log"
-            if log not in self.strace:
-                runner = self.ssh.run_command(f"sudo strace -p {pid} -o {log} -v", is_async=True, until="attached")
-                self.strace[log] = runner
+        agent = f"{CVEX_TEMP_FOLDER_LINUX}/agent.py"
+        self.ssh.upload_file("cvex/linuxagent.py", agent)
+        self.agent = self.ssh.run_command(
+            f"python3 {agent} \"{self.trace}\" {CVEX_TEMP_FOLDER_LINUX} {self.vm_name}",
+            is_async=True)
+        time.sleep(1)
 
     def stop_api_tracing(self, output_dir: str):
-        for _, runner in self.strace.items():
-            self.ssh.send_ctrl_c(runner)
-        for log, _ in self.strace.items():
-            out = f"{output_dir}/{log[len(CVEX_TEMP_FOLDER_LINUX) + 1:]}"
-            self.ssh.download_file(out, log)
+        if not self.trace:
+            return
+        self.ssh.send_ctrl_c(self.agent)
+        logs = self.ssh.run_command(f"ls {CVEX_TEMP_FOLDER_LINUX}/*strace*.log")
+        for log in re.findall(rf"({CVEX_TEMP_FOLDER_LINUX}.+?log)", logs):
+            _, fil = os.path.split(log)
+            self.ssh.download_file(f"{output_dir}/{fil}", log)
 

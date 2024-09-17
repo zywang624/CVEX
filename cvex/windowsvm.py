@@ -122,8 +122,8 @@ class WindowsVM(VM):
         except:
             pass
 
-        remote_config_path = f"{CVEX_TEMP_FOLDER_WINDOWS}\\config.pmc"
         if self.trace:
+            remote_config_path = f"{CVEX_TEMP_FOLDER_WINDOWS}\\config.pmc"
             with open("data/procmon.pmc", "rb") as f:
                 config = procmon_parser.load_configuration(f)
             config["FilterRules"] = [
