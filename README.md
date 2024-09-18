@@ -67,7 +67,7 @@ ports: ...       # HTTPS port(s) as integer or list of integers (optional; 443 b
 ...:             # Name of the VM as in the blueprint
   trace: ...     # Name of the process for API tracing (optional); for Windows: partial name of the process; for Linux: regular expression
   playbook: ...  # Ansible playbook (optional)
-  command: ...   # Command to execute on this VM (optional); `%vm_name%` will be replaced with the IP address of the VM
+  command: ...   # Command to execute on this VM (optional); %vm_name% will be replaced with the IP address of the VM
 ...:
   trace: ...
   playbook: ...
@@ -177,7 +177,7 @@ Sometimes VM initialization takes longer than expected:
 2024-09-13 14:03:41,858 - CRITICAL - [windows] VM windows timed out. Please wait until the VM is started and then re-start CVEX with the '-k' parameter.
 ```
 
-In this case we need to wait until the VM is up and the OS is aready. For example, use the VirtualBox GUI. As soon as the OS fully loads, re-run CVEX the parameter `-k`. With this parameter CVEX uses the VMs that are already running:
+In this case we need to wait until the VM is up and the OS is aready. For example, use the VirtualBox GUI. As soon as the OS fully loads, re-run CVEX with `-k`. With this parameter CVEX uses the VMs that are already running:
 ```
 $ python3 -m cvex -c CVE-000000-00 -k
 2024-09-13 14:25:18,880 - INFO - [router] Retrieving status of router...
@@ -300,7 +300,7 @@ When the VM is up, CVEX runs the [ansible/linux.yml](/ansible/linux.yml) Ansible
 Every VM may have maximum 3 Ansible playbooks:
 1. Configuration playbook ([ansible/linux.yml](/ansible/linux.yml)) - controlled by CVEX developers
 2. Blueprint playbook (none in our case) - controlled by CVEX blueprint contributors
-3. CVE playbook ([records/CVE-000000-00/cvex.yml](records/CVE-000000-00/cvex.yml)) - controlled by CVEX users
+3. CVE playbook ([records/CVE-000000-00/linux.yml](records/CVE-000000-00/linux.yml)) - controlled by CVEX users
 
 At this point all the VMs (router, Windows, Ubuntu) are up and running, the needed software is installed and the needed VM snapshots are created. CVEX performs the following actions:
 - Configures the hosts file on every VM except the router
@@ -373,11 +373,13 @@ At this point all VMs are ready to reproduce the CVE. CVEX executes the command 
 2024-09-13 14:44:19,648 - INFO - [windows] Executing 'curl https://ubuntu/index.html?cat=(select*from(select(sleep(15)))a)'...
 ```
 
-The curl command has succeeded. CVEX downloads logs and puts them to the default folder `out`:
+The curl command has succeeded. CVEX downloads logs and puts them to the default output folder `out`:
 - From router: tcpdump's PCAP file
 - From router: mitmdump's log file
 - From Windows: Process Monitor's log file
 - From Linux: strace's log files
+
+Parameter `-o` specifies custom output folder.
 
 ```
 2024-09-13 14:44:21,063 - INFO - [windows] Executing 'C:\Tools\Procmon64.exe /AcceptEula /Terminate'...
