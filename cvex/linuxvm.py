@@ -133,6 +133,14 @@ class LinuxVM(VM):
         if not self.trace:
             return
         self.ssh.send_ctrl_c(self.agent)
+        try:
+            self.ssh.run_command("pkill python3")
+        except:
+            pass
+        try:
+            self.ssh.run_command("sudo pkill strace")
+        except:
+            pass
         logs = self.ssh.run_command(f"ls {CVEX_TEMP_FOLDER_LINUX}/*strace*.log")
         for log in re.findall(rf"({CVEX_TEMP_FOLDER_LINUX}.+?log)", logs):
             _, fil = os.path.split(log)

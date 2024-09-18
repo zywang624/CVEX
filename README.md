@@ -60,6 +60,21 @@ windows:
   command: "curl https://ubuntu/index.html?cat=(select*from(select(sleep(15)))a)"
 ```
 
+Full list of parameters of a CVEX record:
+```
+blueprint: ...   # Blueprint name from the "blueprints" folder
+ports: ...       # HTTPS port(s) as integer or list of integers (optional; 443 by default)
+...:             # Name of the VM as in the blueprint
+  trace: ...     # Name of the process for API tracing (optional); for Windows: partial name of the process; for Linux: regular expression
+  playbook: ...  # Ansible playbook (optional)
+  command: ...   # Command to execute on this VM (optional); `%vm_name%` will be replaced with the IP address of the VM
+...:
+  trace: ...
+  playbook: ...
+  command: ...
+...
+```
+
 CVEX blueprints define minimal network deployments:
 - Ubuntu host attacking Window host
 - Window host attacking Ubuntu host
@@ -76,6 +91,21 @@ ubuntu:
   image: "bento/ubuntu-22.04"
   version: "202404.23.0"
   type: "linux"
+```
+
+Full list of parameters of a blueprint:
+```
+...:             # Name of the VM
+  image: ...     # Vagrant image
+  version: ...   # Vagrant image version
+  type: ...      # "windows" or "linux"
+  playbook: ...  # Ansible playbook (optional)
+...:
+  image: ...
+  version: ...
+  type: ...
+  playbook: ...
+...
 ```
 
 At first, CVEX pulls the Ubuntu VM from the Vagrant repository and stores the config file of the VM in ~/.cvex/router. This Ubuntu VM will act as a router. It also creates the `clean` snapshot with the initial state of the VM:
@@ -267,6 +297,11 @@ When the VM is up, CVEX runs the [ansible/linux.yml](/ansible/linux.yml) Ansible
 2024-09-13 14:42:51,776 - INFO - [ubuntu] Creating snapshot 'CVE-000000-00/ubuntu' for VM ubuntu (192.168.56.4)...
 ```
 
+Every VM may have maximum 3 Ansible playbooks:
+1. Configuration playbook ([ansible/linux.yml](/ansible/linux.yml)) - controlled by CVEX developers
+2. Blueprint playbook (none in our case) - controlled by CVEX blueprint contributors
+3. CVE playbook ([records/CVE-000000-00/cvex.yml](records/CVE-000000-00/cvex.yml)) - controlled by CVEX users
+
 At this point all the VMs (router, Windows, Ubuntu) are up and running, the needed software is installed and the needed VM snapshots are created. CVEX performs the following actions:
 - Configures the hosts file on every VM except the router
 - Sets up static network interface IP addresses on every VM
@@ -356,4 +391,10 @@ The curl command has succeeded. CVEX downloads logs and puts them to the default
 2024-09-13 14:44:38,472 - INFO - [router] Downloading /tmp/cvex/router_raw.pcap...
 2024-09-13 14:44:38,524 - INFO - [router] Downloading /tmp/cvex/router_mitmdump.stream...
 ```
+
+## Debug
+
+If something goes wrong and re-starting CVEX doesn't help, run it with the `-v` parameter. It will show you even more logs that may help debugging the issue.
+
+
 

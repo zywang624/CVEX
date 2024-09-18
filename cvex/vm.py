@@ -163,7 +163,6 @@ class VM:
             self.log.info("Inventory %s has been created", inventory)
             for playbook in self.playbooks:
                 self.log.info("Executing Ansible playbook %s...", playbook)
-                # ansible_playbook_runner.Runner([inventory], self.playbook).run()
                 result = self._run_shell_command(["ansible-playbook", "-i", inventory, playbook], show_progress=True)
                 if b"unreachable=0" not in result or b"failed=0" not in result:
                     sys.exit(1)

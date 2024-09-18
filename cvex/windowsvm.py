@@ -122,6 +122,7 @@ class WindowsVM(VM):
         except:
             pass
 
+        pml_log = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{self.vm_name}_{PROCMON_PML_LOG}"
         if self.trace:
             remote_config_path = f"{CVEX_TEMP_FOLDER_WINDOWS}\\config.pmc"
             with open("data/procmon.pmc", "rb") as f:
@@ -137,16 +138,18 @@ class WindowsVM(VM):
                 procmon_parser.dump_configuration(config, f)
             self.ssh.upload_file(local_config.name, f"/{remote_config_path}")
             self.ssh.run_command(
-                f"C:\\Tools\\Procmon64.exe /AcceptEula /BackingFile {PROCMON_PML_LOG_PATH} /LoadConfig {remote_config_path} /Quiet",
+                f"C:\\Tools\\Procmon64.exe /AcceptEula /BackingFile {pml_log} /LoadConfig {remote_config_path} /Quiet",
                 is_async=True)
         else:
             self.ssh.run_command(
-                f"C:\\Tools\\Procmon64.exe /AcceptEula /BackingFile {PROCMON_PML_LOG_PATH} /Quiet",
+                f"C:\\Tools\\Procmon64.exe /AcceptEula /BackingFile {pml_log} /Quiet",
                 is_async=True)
 
     def stop_api_tracing(self, output_dir: str):
         self.ssh.run_command("C:\\Tools\\Procmon64.exe /AcceptEula /Terminate")
+        pml_log = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{self.vm_name}_{PROCMON_PML_LOG}"
+        xml_log = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{self.vm_name}_{PROCMON_XML_LOG}"
         self.ssh.run_command(
-            f"C:\Tools\Procmon64.exe /AcceptEula /OpenLog {PROCMON_PML_LOG_PATH} /SaveAs {PROCMON_XML_LOG_PATH}")
-        self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_PML_LOG}", f"/{PROCMON_PML_LOG_PATH}")
-        self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_XML_LOG}", f"/{PROCMON_XML_LOG_PATH}")
+            f"C:\Tools\Procmon64.exe /AcceptEula /OpenLog {pml_log} /SaveAs {xml_log}")
+        self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_PML_LOG}", f"/{pml_log}")
+        self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_XML_LOG}", f"/{xml_log}")
