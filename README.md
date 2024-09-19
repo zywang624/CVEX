@@ -398,5 +398,20 @@ Parameter `-o` specifies custom output folder.
 
 If something goes wrong and re-starting CVEX doesn't help, run it with the `-v` parameter. It will show you even more logs that may help debugging the issue.
 
+## Managing VMs
 
+CVEX executed with `-l` parameter shows the list of cached VMs:
+```
+$ python3 -m cvex -l
+2024-09-19 10:41:45,410 - INFO - [main] Cached VMs:
+2024-09-19 10:41:45,410 - INFO - [main] router
+2024-09-19 10:41:45,410 - INFO - [main] gusztavvargadr_windows-10/2202.0.2404/1
+2024-09-19 10:41:45,411 - INFO - [main] bento_ubuntu-22.04/202404.23.0/1
+```
+
+CVEX executed with `-d` parameter destroys the specific VM and deletes all corresponding files:
+```
+$ python3 -m cvex -d gusztavvargadr_windows-10/2202.0.2404/1
+2024-09-19 10:45:57,769 - INFO - [stub] Destroying VM stub...
+```
 
