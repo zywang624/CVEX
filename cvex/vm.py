@@ -21,7 +21,7 @@ class VMTemplate:
     vm_type: str
     trace: str | None
     playbooks: list[Path]
-    command: str | None
+    command: list[str] | None
 
     def __init__(self,
                  vm_name: str,
@@ -30,7 +30,7 @@ class VMTemplate:
                  vm_type: str,
                  trace: str | None = None,
                  playbooks: list[Path] = [],
-                 command: str | None = None):
+                 command: list[str] | None = None):
         self.log = get_logger(vm_name)
         self.vm_name = vm_name
         self.image = image
@@ -58,7 +58,7 @@ class VM:
     vm_type: str
     trace: str | None
     playbooks: list[Path]
-    command: str | None
+    command: list[str] | None
     cve: str
     destination: Path
     vag: vagrant.Vagrant

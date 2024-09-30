@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import sys
+import re
 
 import yaml
 
@@ -66,6 +67,8 @@ class CVEX:
                 playbooks.append(Path("records", cve, cvex[vm_name]['playbook']))
             if 'command' in cvex[vm_name]:
                 command = cvex[vm_name]['command']
+                if type(command) == str:
+                    command = [command]
             else:
                 command = None
             self.vm_templates.append(VMTemplate(vm_name,
@@ -193,16 +196,39 @@ def main():
     # Execute commands
     succeed = True
     for vm in vms:
-        command = vm.command
-        if command:
-            for vm2 in vms:
-                command = command.replace(f"%{vm2.vm_name}%", vm2.ip)
-            try:
-                vm.ssh.run_command(command)
-            except Exception as e:
-                log.critical("Command failed: %r", e)
-                succeed = False
-                break
+        if vm.command:
+            command_idx = 0
+            for command in vm.command:
+                for vm2 in vms:
+                    command = command.replace(f"%{vm2.vm_name}%", vm2.ip)
+                if command.endswith("&"):
+                    is_async = True
+                    command = command[:-1]
+                else:
+                    is_async = False
+                command_until = command.split("||")
+                if len(command_until) == 1:
+                    command = command_until[0]
+                    until = ""
+                else:
+                    command, until = command_until
+                # Run strace with the commands so that the Linux agent
+                if vm.vm_type == VMTemplate.VM_TYPE_LINUX and vm.trace:
+                    r = re.search(vm.trace, command)
+                    if r:
+                        process_name = r.group(0)
+                        log = f"{CVEX_TEMP_FOLDER_LINUX}/{vm.vm_name}_strace_{process_name}_{command_idx}.log"
+                        if command.startswith("sudo "):
+                            command = f"sudo strace -o {log} {command[5:]}"
+                        else:
+                            command = f"strace -o {log} {command}"
+                try:
+                    vm.ssh.run_command(command, is_async=is_async, until=until)
+                except Exception as e:
+                    log.critical("Command failed: %r", e)
+                    succeed = False
+                    break
+                command_idx += 1
 
     # Stop network traffic sniffing, mitmproxy, API tracing
     if succeed:

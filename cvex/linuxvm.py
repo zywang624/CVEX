@@ -141,7 +141,11 @@ class LinuxVM(VM):
             self.ssh.run_command("sudo pkill strace")
         except:
             pass
-        logs = self.ssh.run_command(f"ls {CVEX_TEMP_FOLDER_LINUX}/*strace*.log")
+        try:
+            logs = self.ssh.run_command(f"ls {CVEX_TEMP_FOLDER_LINUX}/*strace*.log")
+        except:
+            # There are no logs
+            return
         for log in re.findall(rf"({CVEX_TEMP_FOLDER_LINUX}.+?log)", logs):
             _, fil = os.path.split(log)
             self.ssh.download_file(f"{output_dir}/{fil}", log)
