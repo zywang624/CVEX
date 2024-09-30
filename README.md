@@ -18,22 +18,24 @@ Tech stack:
 
 ## Installation
 
+### Python
+
 [Install](https://cloudbytes.dev/snippets/upgrade-python-to-latest-version-on-ubuntu-linux) Python 3.10 or higher.
+ 
+Then install Python dependencies using Poetry:
 
-### Create virtual environment
-```
-sudo apt install python3.12-venv
-cd C2F2
-python3.12 -m venv venv
-source venv/bin/activate
-```
-
-### Install Python dependecies
-```
-pip install -e .
+```shell
+sudo apt update
+sudo apt install python3-poetry
+poetry install
 ```
 
-### Install VirtualBox
+And activate a Poetry shell to use the dependencies:
+```shell
+poetry shell
+```
+
+### VirtualBox
 
 While in theory Vagrant should work with any VM provider, CVEX was tested only with VirtualBox. Install VirtualBox this way:
 ```
