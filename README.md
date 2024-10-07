@@ -69,13 +69,18 @@ ports: ...       # HTTPS port(s) as integer or list of integers (optional; 443 b
 ...:             # Name of the VM as in the blueprint
   trace: ...     # Name of the process for API tracing (optional); for Windows: partial name of the process; for Linux: regular expression
   playbook: ...  # Ansible playbook (optional)
-  command: ...   # Command to execute on this VM (optional); %vm_name% will be replaced with the IP address of the VM
+  command: ...   # Command or list of commands to execute on this VM (optional)
 ...:
   trace: ...
   playbook: ...
   command: ...
 ...
 ```
+
+`command` is treated in a special way:
+1. `%vm_name%` will be replaced with the IP address of the VM: `curl https://%ubuntu%:8080/` will turn into `curl https://192.168.56.3:8080/`
+2. Optional `||` splits the command into two parts: 1) the command; 2) the message: for `curl https://%ubuntu%:8080/||Downloaded` CVEX executes `curl https://192.168.56.3:8080/` and then waits until curl prints `Downloaded` to stdout
+3. Optional `&` at the end of the command tells CVEX that the command is non-blocking: for `curl https://%ubuntu%:8080/||Downloaded&` CVEX executes `curl https://192.168.56.3:8080/`, then waits until curl prints `Downloaded` to stdout, and only then executes next command from the list
 
 CVEX blueprints define minimal network deployments:
 - Ubuntu host attacking Window host
