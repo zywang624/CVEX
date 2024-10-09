@@ -201,27 +201,27 @@ def main():
             for command in vm.command:
                 for vm2 in vms:
                     command = command.replace(f"%{vm2.vm_name}%", vm2.ip)
-                if command.endswith("&"):
-                    is_async = True
-                    command = command[:-1]
-                else:
-                    is_async = False
-                command_until = command.split("||")
+                command_until = command.split("~~~")
                 if len(command_until) == 1:
                     command = command_until[0]
                     until = ""
                 else:
                     command, until = command_until
+                if command.endswith("&"):
+                    is_async = True
+                    command = command[:-1]
+                else:
+                    is_async = False
                 # Run strace with the commands so that the Linux agent
                 if vm.vm_type == VMTemplate.VM_TYPE_LINUX and vm.trace:
                     r = re.search(vm.trace, command)
                     if r:
                         process_name = r.group(0)
-                        log = f"{CVEX_TEMP_FOLDER_LINUX}/{vm.vm_name}_strace_{process_name}_{command_idx}.log"
+                        path = f"{CVEX_TEMP_FOLDER_LINUX}/{vm.vm_name}_strace_{process_name}_{command_idx}.log"
                         if command.startswith("sudo "):
-                            command = f"sudo strace -o {log} {command[5:]}"
+                            command = f"sudo strace -o {path} {command[5:]}"
                         else:
-                            command = f"strace -o {log} {command}"
+                            command = f"strace -o {path} {command}"
                 try:
                     vm.ssh.run_command(command, is_async=is_async, until=until)
                 except Exception as e:
