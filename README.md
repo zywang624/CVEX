@@ -30,7 +30,7 @@ While in theory Vagrant should work with any VM provider, CVEX was tested only w
 
 ## Run
 
-Execute a CVE by providing the CVEX record folder to the `cvex` command:
+Execute CVE by providing the CVEX record folder to the `cvex` command:
 ```
 ~/CVEX$ cvex -c records/CVE-0000-00001
 ```
@@ -40,7 +40,7 @@ CVEX comes with a set of PoCs:
 
 <details>
 
-<summary>**Execution of CVE-0000-00000**</summary>
+<summary>Execution of CVE-0000-00000</summary>
 
 
 [records/CVE-0000-00000/cvex.yml](records/CVE-0000-00000/cvex.yml) describes the VM infrastructure for this PoC:
@@ -400,7 +400,7 @@ Parameter `-o` specifies custom output folder.
 - [CVE-2021-44228](records/CVE-2021-44228): Log4j vulnerability with backconnect to remote shell
 
 <details>
-<summary>**CVE-2021-44228 logs analysis**</summary>
+<summary>CVE-2021-44228 logs analysis</summary>
 
 [records/CVE-2021-44228/cvex.yml](records/CVE-2021-44228/cvex.yml) describes the VM infrastructure for this CVE:
 
@@ -534,7 +534,10 @@ E..<..@.?.Jd..8...8....,.Z...g......"..........
 
 1. Re-start CVEX.
 2. Restart CVEX with the `-v` parameter (verbose logging).
-3. Connect to the VM via SSH with the help of `vagrant ssh` command:
+3. Connect to the VM via SSH with the help of `vagrant ssh` command
+<details>
+<summary>How to use "vagrant ssh"</summary>
+
 ```
 $ cd ~/.cvex/bento_ubuntu-22.04/202404.23.0/1/
 
@@ -573,6 +576,8 @@ Last login: Wed Oct  9 13:29:41 2024 from 10.0.2.2
 
 vagrant@ubuntu:~$ 
 ```
+
+</details>
 
 Use VirtualBox GUI to manage VMs and snapshots.
 
