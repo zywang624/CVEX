@@ -17,7 +17,7 @@ class WindowsVM(VM):
         super().__init__(vms, template, cve, keep=keep)
 
     def init(self, router: VM | None = None):
-        self.playbooks.insert(0, "ansible/windows.yml")
+        self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "windows.yml"))
 
     def update_hosts(self, vms: list[VM]):
         remote_hosts = "/C:\\Windows\\System32\\drivers\\etc\\hosts"
@@ -125,7 +125,7 @@ class WindowsVM(VM):
         pml_log = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{self.vm_name}_{PROCMON_PML_LOG}"
         if self.trace:
             remote_config_path = f"{CVEX_TEMP_FOLDER_WINDOWS}\\config.pmc"
-            with open("data/procmon.pmc", "rb") as f:
+            with open(Path(Path(__file__).parent.parent.parent, "data", "procmon.pmc"), "rb") as f:
                 config = procmon_parser.load_configuration(f)
             config["FilterRules"] = [
                 procmon_parser.Rule(
@@ -150,6 +150,6 @@ class WindowsVM(VM):
         pml_log = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{self.vm_name}_{PROCMON_PML_LOG}"
         xml_log = f"{CVEX_TEMP_FOLDER_WINDOWS}\\{self.vm_name}_{PROCMON_XML_LOG}"
         self.ssh.run_command(
-            f"C:\Tools\Procmon64.exe /AcceptEula /OpenLog {pml_log} /SaveAs {xml_log}")
+            f"C:\\Tools\\Procmon64.exe /AcceptEula /OpenLog {pml_log} /SaveAs {xml_log}")
         self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_PML_LOG}", f"/{pml_log}")
         self.ssh.download_file(f"{output_dir}/{self.vm_name}_{PROCMON_XML_LOG}", f"/{xml_log}")

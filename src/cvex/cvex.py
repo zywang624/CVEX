@@ -19,10 +19,10 @@ class CVEX:
     vm_templates: list[VMTemplate]
     ports: list[int]
 
-    def __init__(self, cve: str):
+    def __init__(self, cve_dir: Path):
         self.log = get_logger("CVEX")
 
-        cvex_yml = Path("records", cve, CVEX_FILE)
+        cvex_yml = Path(cve_dir, CVEX_FILE)
         if not cvex_yml.exists():
             self.log.critical("%s does not exist", cvex_yml)
             sys.exit(1)
@@ -38,7 +38,7 @@ class CVEX:
             self.log.critical("%s: configuration mismatch", cvex_yml)
             sys.exit(1)
 
-        blueprint_yml = Path("blueprints", cvex['blueprint'], "blueprint.yml")
+        blueprint_yml = Path(Path(__file__).parent.parent.parent, "blueprints", cvex['blueprint'], "blueprint.yml")
         if not blueprint_yml.exists():
             self.log.critical("Blueprint %r does not exist", blueprint_yml)
             sys.exit(1)
@@ -55,7 +55,7 @@ class CVEX:
                 sys.exit(1)
             playbooks = []
             if 'playbook' in data:
-                playbooks.append(Path("blueprints", cvex['blueprint'], data['playbook']))
+                playbooks.append(Path(Path(__file__).parent.parent.parent, "blueprints", cvex['blueprint'], data['playbook']))
             if vm_name not in cvex:
                 self.log.critical("%s: configuration mismatch", cvex_yml)
                 sys.exit(1)
@@ -64,7 +64,7 @@ class CVEX:
             else:
                 trace = None
             if 'playbook' in cvex[vm_name]:
-                playbooks.append(Path("records", cve, cvex[vm_name]['playbook']))
+                playbooks.append(Path(cve_dir, cvex[vm_name]['playbook']))
             if 'command' in cvex[vm_name]:
                 command = cvex[vm_name]['command']
                 if type(command) == str:
@@ -108,7 +108,7 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--cve", help="CVE name in format 'CVE-XXXXXX-XX'")
+    parser.add_argument("-c", "--cve", help="CVE folder name")
     parser.add_argument("-o", "--output", help="Directory for generated logs", default="out")
     parser.add_argument("-l", "--list", help="List all cached VMs", default=False, action="store_true")
     parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
@@ -160,23 +160,24 @@ def main():
         sys.exit(1)
 
     if args.cve is None:
-        log.critical("CVE number is mandatory")
+        log.critical("CVE directory is mandatory")
         sys.exit(1)
 
     # Load cvex.yml of the CVE record
-    cvex = CVEX(args.cve)
+    cvex = CVEX(Path(args.cve))
 
     # Start all VMs
     vms = []
     router = RouterVM(args.keep)
     router.run()
     vms.append(router)
+    cve_name = Path(args.cve).name
     for vm_template in cvex.vm_templates:
         if vm_template.vm_type == VMTemplate.VM_TYPE_LINUX:
-            vm = LinuxVM(vms, vm_template, args.cve, keep=args.keep)
+            vm = LinuxVM(vms, vm_template, cve_name, keep=args.keep)
             vm.run(router)
         elif vm_template.vm_type == VMTemplate.VM_TYPE_WINDOWS:
-            vm = WindowsVM(vms, vm_template, args.cve, args.keep)
+            vm = WindowsVM(vms, vm_template, cve_name, args.keep)
             vm.run(router)
         vms.append(vm)
 

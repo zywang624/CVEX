@@ -16,7 +16,7 @@ class RouterVM(LinuxVM):
         super().__init__([], template, "", destination=ROUTER_VM_DESTINATION, keep=keep)
 
     def init(self, router: VM | None = None):
-        self.playbooks.insert(0, "ansible/router.yml")
+        self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "router.yml"))
 
     def _read_output(self, runner: fabric.runners.Remote):
         try:

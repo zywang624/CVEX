@@ -19,7 +19,7 @@ class LinuxVM(VM):
         super().__init__(vms, template, cve, destination, keep)
 
     def init(self, router: VM | None = None):
-        self.playbooks.insert(0, "ansible/linux.yml")
+        self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "linux.yml"))
 
     def update_hosts(self, vms: list[VM]):
         remote_hosts = "/etc/hosts"
@@ -123,7 +123,7 @@ class LinuxVM(VM):
             pass
         self.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
         agent = f"{CVEX_TEMP_FOLDER_LINUX}/agent.py"
-        self.ssh.upload_file("src/cvex/linuxagent.py", agent)
+        self.ssh.upload_file(Path(Path(__file__).parent, "linuxagent.py"), agent)
         self.agent = self.ssh.run_command(
             f"python3 {agent} \"{self.trace}\" {CVEX_TEMP_FOLDER_LINUX} {self.vm_name}",
             is_async=True)
