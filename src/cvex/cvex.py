@@ -120,7 +120,7 @@ def main():
         set_log_level(logging.DEBUG)
     log = get_logger("main")
 
-    if args.list or args.destroy != None:
+    if args.list or args.destroy:
         images = [f.name for f in os.scandir(CVEX_ROOT) if f.is_dir()]
         if not images:
             log.info("There are no cached VMs")
@@ -130,7 +130,7 @@ def main():
         if ROUTER_VM_NAME in images:
             if args.list:
                 log.info("%s", ROUTER_VM_NAME)
-            if args.destroy == "" or args.destroy == ROUTER_VM_NAME:
+            if args.destroy == "all" or args.destroy == ROUTER_VM_NAME:
                 router = RouterVM()
                 router.destroy()
         for image in images:
@@ -142,9 +142,10 @@ def main():
                 for instance in instances:
                     if args.list:
                         log.info("%s/%s/%s", image, version, instance)
-                    if args.destroy == "" or args.destroy == f"{image}/{version}/{instance}":
+                    if args.destroy == "all" or args.destroy == f"{image}/{version}/{instance}":
                         destination = Path(CVEX_ROOT, image, version, instance)
-                        vm = VM([], VMTemplate("stub", "stub", "stub", VMTemplate.VM_TYPE_LINUX), "stub", destination=destination)
+                        vm = VM([], VMTemplate(
+                            f"{image}/{version}/{instance}", "stub", "stub", VMTemplate.VM_TYPE_LINUX), "stub", destination=destination)
                         vm.destroy()
                         try:
                             shutil.rmtree(destination)

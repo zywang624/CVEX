@@ -255,7 +255,7 @@ class VM:
                 self._start_vm(router)
 
     def destroy(self):
-        self.log.info("Destroying VM %s...", self.image)
+        self.log.info("Destroying VM %s...", self.vm_name)
         try:
             self.vag.destroy()
             try:

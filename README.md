@@ -189,6 +189,8 @@ $ cvex -c records/CVE-0000-00000 -k
 2024-09-13 14:25:51,738 - INFO - [windows] Creating snapshot 'clean' for VM windows (192.168.56.3)...
 ```
 
+Be mindful, `cvex -k` will also leave the VMs running (which is great for debugging).
+
 CVEX runs the [ansible/windows.yml](/ansible/windows.yml) Ansible playbook before creating the `CVE-0000-00000/windows` snapshot:
 ```
 2024-09-13 14:26:30,209 - INFO - [windows] Executing Ansible playbook ansible/windows.yml...
@@ -592,9 +594,13 @@ $ cvex -l
 2024-09-19 10:41:45,411 - INFO - [main] bento_ubuntu-22.04/202404.23.0/1
 ```
 
-CVEX executed with `-d` parameter destroys the specific VM and deletes all corresponding files:
+CVEX executed with `-d` parameter destroys the specific VM and deletes all corresponding files in the `~/.cvex` folder:
 ```
 $ cvex -d gusztavvargadr_windows-10/2202.0.2404/1
 2024-09-19 10:45:57,769 - INFO - [stub] Destroying VM stub...
 ```
+
+However, even though the VM disappears from the VirtialBox GUI, some remnants may remain in the `~/VirtualBox VMs` folder. Delete them manually.
+
+`cvex -d all` destroys all VMs.
 
