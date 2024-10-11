@@ -178,7 +178,6 @@ class VM:
         else:
             return self.vm_name
 
-
     def _start_vm(self, router = None):
         self.log.info("Starting the VM %s...", self.vm_name)
         try:

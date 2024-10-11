@@ -108,10 +108,10 @@ def main():
         prog="cvex",
         description="",
     )
-    parser.add_argument("-c", "--cve", help="CVE folder name")
-    parser.add_argument("-o", "--output", help="Directory for generated logs", default="out")
+    parser.add_argument("cve", help="CVE directory name", nargs='?')
+    parser.add_argument("-o", "--output", help="Directory for generated logs (\"out\" by default)", default="out")
     parser.add_argument("-l", "--list", help="List all cached VMs", default=False, action="store_true")
-    parser.add_argument("-d", "--destroy", help="Destroy cached VMs (destroy all if empty)")
+    parser.add_argument("-d", "--destroy", help="Name of the cached VM to destroy or \"all\"")
     parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")
     parser.add_argument("-k", "--keep", help="Keep VMs running", default=False, action="store_true")
     args = parser.parse_args()
@@ -160,7 +160,7 @@ def main():
         log.critical("%s is not a directory", output_dir)
         sys.exit(1)
 
-    if args.cve is None:
+    if not args.cve:
         log.critical("CVE directory is mandatory")
         sys.exit(1)
 
@@ -214,7 +214,7 @@ def main():
                     command = command[:-1]
                 else:
                     is_async = False
-                # Run strace with the commands so that the Linux agent
+                # Run strace with the commands, otherwise the Linux agent may detect them too late
                 if vm.vm_type == VMTemplate.VM_TYPE_LINUX and vm.trace:
                     r = re.search(vm.trace, command)
                     if r:

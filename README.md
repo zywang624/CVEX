@@ -32,7 +32,7 @@ While in theory Vagrant should work with any VM provider, CVEX was tested only w
 
 Execute CVE by providing the CVEX record folder to the `cvex` command:
 ```
-~/CVEX$ cvex -c records/CVE-0000-00001
+~/CVEX$ cvex records/CVE-0000-00001
 ```
 
 CVEX comes with a set of PoCs:
@@ -109,7 +109,7 @@ Full list of parameters of a blueprint:
 
 At first, CVEX pulls an Ubuntu VM from the Vagrant repository and stores the config file of the VM in `~/.cvex/router`. This VM will be the router. It also creates the `clean` snapshot with the initial state of the VM:
 ```
-~/CVEX$ cvex -c records/CVE-0000-00000
+~/CVEX$ cvex records/CVE-0000-00000
 2024-09-13 13:52:30,081 - INFO - [router] Retrieving status of router...
 2024-09-13 13:52:32,820 - INFO - [router] Initializing a new VM router at /home/john/.cvex/router...
 2024-09-13 13:52:33,766 - INFO - [router] Starting the VM router...
@@ -178,7 +178,7 @@ Sometimes VM initialization takes longer than expected:
 
 In this case we need to wait until the VM is up and the OS is aready. For example, use the VirtualBox GUI. As soon as the OS fully loads, re-run CVEX with `-k`. With this parameter CVEX uses the VMs that are already running:
 ```
-$ cvex -c records/CVE-0000-00000 -k
+$ cvex records/CVE-0000-00000 -k
 2024-09-13 14:25:18,880 - INFO - [router] Retrieving status of router...
 2024-09-13 14:25:23,828 - INFO - [router] VM router (192.168.56.2) is already running
 2024-09-13 14:25:26,910 - INFO - [router] Retrieving snapshot list of router...

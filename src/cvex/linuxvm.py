@@ -9,6 +9,7 @@ from invoke import UnexpectedExit
 from cvex.consts import *
 from cvex.vm import VM, VMTemplate
 
+
 class LinuxVM(VM):
     def __init__(self,
                  vms: list,
