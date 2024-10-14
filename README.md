@@ -18,12 +18,37 @@ Tech stack:
 
 ## Installation
 
+CVEX has been tested on Ubuntu 24.04, 22.04, and 20.04.
+
+Create virtual environment (optional):
 ```
 python3 -m venv venv
 source venv/bin/activate
-pip install -e .
-sudo apt update
-sudo apt install virtualbox virtualbox-ext-pack
+```
+
+Install CVEX:
+```
+~/CVEX$ sudo apt update
+~/CVEX$ pip install -e .
+```
+
+Install Vagrant 2.4.1:
+```
+wget https://releases.hashicorp.com/vagrant/2.4.1/vagrant-2.4.1-1.x86_64.rpm
+sudo apt install alien
+sudo alien -i vagrant-2.4.1-1.x86_64.rpm
+```
+
+Install VirtualBox 7.0.20 (**Ubuntu 22.04**):
+```
+wget https://download.virtualbox.org/virtualbox/7.0.20/virtualbox-7.0_7.0.20-163906~Ubuntu~jammy_amd64.deb
+sudo dpkg -i virtualbox-7.0_7.0.20-163906~Ubuntu~jammy_amd64.deb
+wget https://download.virtualbox.org/virtualbox/7.0.20/Oracle_VM_VirtualBox_Extension_Pack-7.0.20.vbox-extpack
+sudo vboxmanage extpack install Oracle_VM_VirtualBox_Extension_Pack-7.0.20.vbox-extpack
+```
+Refer to the VirtualBox [download](https://www.oracle.com/virtualization/technologies/vm/downloads/virtualbox-downloads.html) page to find the appropriate package of VirtualBox that suits your OS. If dpkg shows errors during installation, run this command to fix them:
+```
+sudo apt --fix-broken install
 ```
 
 While in theory Vagrant should work with any VM provider, CVEX was tested only with VirtualBox.

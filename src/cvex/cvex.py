@@ -27,6 +27,13 @@ class CVEX:
             self.log.critical("%s does not exist", cvex_yml)
             sys.exit(1)
 
+        for root, dirs, files in os.walk(Path(cve_dir, "data")):
+            for fil in files:
+                with open(Path(root, fil), "r") as f:
+                    if "git-lfs.github.com" in f.readline(256):
+                        self.log.critical("Git LFS files detected. Please install Git LFS and pull the files: sudo apt install git-lfs; git lfs pull")
+                        sys.exit(1)
+
         try:
             with open(cvex_yml, "r") as f:
                 cvex = yaml.safe_load(f)
