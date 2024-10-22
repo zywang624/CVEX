@@ -16,7 +16,7 @@ Tech stack:
 - Linux syscall collection: strace
 - Windows API collection: Process Monitor
 
-## Installation
+## Install
 
 CVEX has been tested on Ubuntu 24.04, 22.04, and 20.04.
 
@@ -32,14 +32,14 @@ Install CVEX:
 ~/CVEX$ pip install -e .
 ```
 
-Install Vagrant 2.4.1:
+Install Vagrant:
 ```
 wget https://releases.hashicorp.com/vagrant/2.4.1/vagrant-2.4.1-1.x86_64.rpm
 sudo apt install alien
 sudo alien -i vagrant-2.4.1-1.x86_64.rpm
 ```
 
-Install VirtualBox 7.0.20 (**Ubuntu 22.04**):
+Install VirtualBox (**Ubuntu 22.04**):
 ```
 wget https://download.virtualbox.org/virtualbox/7.0.20/virtualbox-7.0_7.0.20-163906~Ubuntu~jammy_amd64.deb
 sudo dpkg -i virtualbox-7.0_7.0.20-163906~Ubuntu~jammy_amd64.deb
@@ -608,7 +608,7 @@ vagrant@ubuntu:~$
 
 Use VirtualBox GUI to manage VMs and snapshots.
 
-## Managing VMs
+## Manage VMs
 
 CVEX executed with `-l` parameter shows the list of cached VMs:
 ```
