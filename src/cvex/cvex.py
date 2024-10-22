@@ -29,8 +29,8 @@ class CVEX:
 
         for root, dirs, files in os.walk(Path(cve_dir, "data")):
             for fil in files:
-                with open(Path(root, fil), "r") as f:
-                    if "git-lfs.github.com" in f.readline(256):
+                with open(Path(root, fil), "rb") as f:
+                    if b"git-lfs.github.com" in f.readline(256):
                         self.log.critical("Git LFS files detected. Please install Git LFS and pull the files: sudo apt install git-lfs; git lfs pull")
                         sys.exit(1)
 
