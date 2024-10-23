@@ -667,7 +667,7 @@ ubuntu2:
 ```
 
 Before testing if the whole thing works, **delete** the `CVE-2020-1938/ubuntu1` and `CVE-2020-1938/ubuntu2` snapshots, otherwise CVEX will keep using them:
-![Delete CVE-2020-1938/ubuntu1 snapshot](img/delete_CVE-1234-56789_ubuntu1.png)
+![Delete CVE-2020-1938/ubuntu1 snapshot](img/delete_CVE-2020-1938_ubuntu1.png)
 
 Fire it all up:
 ```
