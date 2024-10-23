@@ -72,6 +72,7 @@ CVEX comes with a set of PoCs:
 - [CVE-0000-00001](records/CVE-0000-00001): curl, executed on Ubuntu, downloads a web-page from ngix, running on another Ubuntu
 - [CVE-0000-00002](records/CVE-0000-00002): curl, executed on Ubuntu, downloads a web-page from ngix, running on Windows
 - [CVE-0000-00003](records/CVE-0000-00003): curl, executed on Windows, downloads a web-page from ngix, running on another Windows
+- [CVE-2020-1938](records/CVE-2020-1938): Apache Tomcat AJP Arbitrary File Read/Include Vulnerability
 - [CVE-2021-44228](records/CVE-2021-44228): Log4j vulnerability with backconnect to remote shell
 
 <details>
@@ -209,7 +210,7 @@ E..<..@.?.Jd..8...8....,.Z...g......"..........
 
 1. Re-start CVEX.
 2. Restart CVEX with the `-v` parameter (verbose logging).
-3. Connect to the VM via SSH with the help of `vagrant ssh` command
+3. Connect to the VM via SSH with the help of `vagrant ssh` command.
 <details>
 <summary>How to use "vagrant ssh"</summary>
 
