@@ -63,28 +63,24 @@ class CVEX:
             playbooks = []
             if 'playbook' in data:
                 playbooks.append(Path(Path(__file__).parent.parent.parent, "blueprints", cvex['blueprint'], data['playbook']))
-            if vm_name not in cvex:
-                self.log.critical("%s: configuration mismatch", cvex_yml)
-                sys.exit(1)
-            if 'trace' in cvex[vm_name]:
-                trace = cvex[vm_name]['trace']
-            else:
-                trace = None
-            if 'playbook' in cvex[vm_name]:
-                playbooks.append(Path(cve_dir, cvex[vm_name]['playbook']))
-            if 'command' in cvex[vm_name]:
-                command = cvex[vm_name]['command']
-                if type(command) == str:
-                    command = [command]
-            else:
-                command = None
+            trace = None
+            command = None
+            if vm_name in cvex:
+                if 'trace' in cvex[vm_name]:
+                    trace = cvex[vm_name]['trace']
+                if 'playbook' in cvex[vm_name]:
+                    playbooks.append(Path(cve_dir, cvex[vm_name]['playbook']))
+                if 'command' in cvex[vm_name]:
+                    command = cvex[vm_name]['command']
+                    if type(command) == str:
+                        command = [command]
             self.vm_templates.append(VMTemplate(vm_name,
-                                             data['image'],
-                                             data['version'],
-                                             data['type'],
-                                             trace,
-                                             playbooks,
-                                             command))
+                                            data['image'],
+                                            data['version'],
+                                            data['type'],
+                                            trace,
+                                            playbooks,
+                                            command))
         if not self.vm_templates:
             self.log.critical("%s: configuration mismatch", blueprint_yml)
             sys.exit(1)
