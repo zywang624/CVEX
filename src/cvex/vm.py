@@ -85,16 +85,17 @@ class VM:
                     free_instances.remove(instance)
         if free_instances:
             snapshot = f"{self.cve}/{self.vm_name}"
-            self.log.info("Looking for a VM with %s snapshot...", snapshot)
+            self.log.info("Looking for a VM with '%s' snapshot...", snapshot)
             for instance in free_instances:
                 destination = Path(path, instance)
                 vag = vagrant.Vagrant(destination)
                 snapshots = vag.snapshot_list()
                 if snapshot in snapshots:
-                    self.log.debug("Found: %s...", destination)
+                    self.log.info("Found %s", destination)
                     return destination
-            self.log.debug("Not found, taking: %s...", destination)
-            return Path(path, free_instances[0])
+            destination = Path(path, free_instances[0])
+            self.log.info("Taking %s", destination)
+            return destination
         else:
             return Path(path, str(max_instance + 1))
 
@@ -113,15 +114,31 @@ class VM:
         self.playbooks = template.playbooks
         self.command = template.command
         self.cve = cve
+        global current_ip
+        self.ip = f"192.168.56.{current_ip}"
+        current_ip += 1
+        self.log.info("IP: %s", self.ip)
         if destination:
             self.destination = destination
         else:
             self.destination = self._get_vm_destination(vms)
-        self.vag = vagrant.Vagrant(self.destination)
-        global current_ip
-        self.ip = f"192.168.56.{current_ip}"
-        current_ip += 1
+        log_cm = vagrant.make_file_cm(VAGRANT_LOG, "w")
+        self.vag = vagrant.Vagrant(self.destination, out_cm=log_cm, err_cm=log_cm)
         self.keep = keep
+
+    def _get_vagrant_log(self) -> str:
+        with open(VAGRANT_LOG, "r") as f:
+            return f.read()
+        
+    def _print_vagrant_log(self, log_level: int):
+        log = self._get_vagrant_log()
+        if log:
+            if log_level == logging.INFO:
+                self.log.info("%s", log)
+            elif log_level == logging.CRITICAL:
+                self.log.critical("%s", log)
+            else:
+                self.log.debug("%s", log)
 
     def _configure_vagrantfile(self):
         vagrantfile = os.path.join(self.destination, "Vagrantfile")
@@ -168,8 +185,13 @@ class VM:
                     sys.exit(1)
 
     def _init_vm(self):
-        self.log.info("Initializing a new VM %s at %s...", self.vm_name, self.destination)
-        self.vag.init(box_url=self.image)
+        self.log.info("Initializing a new VM at %s...", self.destination)
+        try:
+            self.vag.init(box_url=self.image)
+            self._print_vagrant_log(logging.DEBUG)
+        except:
+            self._print_vagrant_log(logging.CRITICAL)
+            sys.exit(1)
         self._configure_vagrantfile()
 
     def _get_snapshot_name(self):
@@ -179,23 +201,61 @@ class VM:
             return self.vm_name
 
     def _start_vm(self, router = None):
-        self.log.info("Starting the VM %s...", self.vm_name)
+        self.log.info("Starting VM...")
         try:
             self.vag.up()
+            self._print_vagrant_log(logging.DEBUG)
         except:
-            self.log.critical("VM %s timed out. Please wait until the VM is started and then re-start CVEX with the '-k' parameter.",
-                              self.vm_name)
+            up_log = self._get_vagrant_log()
+            if "VERR_VMX_NO_VMX" in up_log:
+                self.log.critical("VT-x is not available. Enable nested virtualization.")
+                sys.exit(1)
+            if "Timed out" in up_log:
+                self.log.critical(
+                    "Timed out. Please wait until the VM is started and then re-start CVEX with the '-k' parameter.")
+                sys.exit(1)
+            self._print_vagrant_log(logging.CRITICAL)
             sys.exit(1)
 
-        self.log.info("Creating snapshot '%s' for VM %s (%s)...", INIT_SNAPSHOT, self.vm_name, self.ip)
-        self.vag.snapshot_save(INIT_SNAPSHOT)
+        self.log.info("Creating snapshot '%s'...", INIT_SNAPSHOT)
+        try:
+            self.vag.snapshot_save(INIT_SNAPSHOT)
+            self._print_vagrant_log(logging.DEBUG)
+        except:
+            self._print_vagrant_log(logging.CRITICAL)
+            sys.exit(1)
 
         self.ssh = SSH(self.vag, self.vm_name)
         self._provision_vm(router)
 
         snapshot = self._get_snapshot_name()
-        self.log.info("Creating snapshot '%s' for VM %s (%s)...", snapshot, self.vm_name, self.ip)
-        self.vag.snapshot_save(snapshot)
+        self.log.info("Creating snapshot '%s'...", snapshot)
+        try:
+            self.vag.snapshot_save(snapshot)
+            self._print_vagrant_log(logging.DEBUG)
+        except:
+            self._print_vagrant_log(logging.CRITICAL)
+            sys.exit(1)
+
+    def _restore_snapshot(self, snapshot: str):
+        self.log.info("Restoring to snapshot '%s'...", snapshot)
+        try:
+            self.vag.snapshot_restore(snapshot)
+            self._print_vagrant_log(logging.DEBUG)
+        except:
+            restore_log = self._get_vagrant_log()
+            if "VERR_VMX_NO_VMX" in restore_log:
+                self.log.critical("VT-x is not available. Enable nested virtualization.")
+                sys.exit(1)
+            if "Vagrant cannot forward" in restore_log:
+                try:
+                    self.vag.reload()
+                    self._print_vagrant_log(logging.DEBUG)
+                    return
+                except:
+                    pass
+            self._print_vagrant_log(logging.CRITICAL)
+            sys.exit(1)
 
     def run(self, router = None):
         if not os.path.exists(self.destination):
@@ -204,8 +264,13 @@ class VM:
             self._start_vm(router)
             return
 
-        self.log.info("Retrieving status of %s...", self.vm_name)
-        status = self.vag.status()
+        self.log.info("Retrieving status...")
+        try:
+            status = self.vag.status()
+            self._print_vagrant_log(logging.DEBUG)
+        except:
+            self._print_vagrant_log(logging.CRITICAL)
+            sys.exit(1)
         snapshot = self._get_snapshot_name()
 
         if status[0].state == "not_created":
@@ -214,59 +279,80 @@ class VM:
             self._init_vm()
             self._start_vm(router)
         elif self.keep and status[0].state == "running":
-            self.log.info("VM %s (%s) is already running", self.vm_name, self.ip)
+            self.log.info("VM is already running")
             self.ssh = SSH(self.vag, self.vm_name)
 
-            self.log.info("Retrieving snapshot list of %s...", self.vm_name)
-            snapshots = self.vag.snapshot_list()
+            self.log.info("Retrieving snapshot list...")
+            try:
+                snapshots = self.vag.snapshot_list()
+                self._print_vagrant_log(logging.DEBUG)
+            except:
+                self._print_vagrant_log(logging.CRITICAL)
+                sys.exit(1)
 
             if INIT_SNAPSHOT not in snapshots:
-                self.log.info("Creating snapshot '%s' for VM %s (%s)...", INIT_SNAPSHOT, self.vm_name, self.ip)
-                self.vag.snapshot_save(INIT_SNAPSHOT)
+                self.log.info("Creating snapshot '%s'...", INIT_SNAPSHOT)
+                try:
+                    self.vag.snapshot_save(INIT_SNAPSHOT)
+                    self._print_vagrant_log(logging.DEBUG)
+                except:
+                    self._print_vagrant_log(logging.CRITICAL)
+                    sys.exit(1)
 
             if snapshot not in snapshots:
                 self._provision_vm(router)
-                self.log.info("Creating snapshot '%s' for VM %s (%s)...", snapshot, self.vm_name, self.ip)
-                self.vag.snapshot_save(snapshot)
+                self.log.info("Creating snapshot '%s'...", snapshot)
+                try:
+                    self.vag.snapshot_save(snapshot)
+                    self._print_vagrant_log(logging.DEBUG)
+                except:
+                    self._print_vagrant_log(logging.CRITICAL)
+                    sys.exit(1)
         else:
-            self.log.info("Retrieving snapshot list of %s...", self.vm_name)
-            snapshots = self.vag.snapshot_list()
+            self.log.info("Retrieving snapshot list...")
+            try:
+                snapshots = self.vag.snapshot_list()
+                self._print_vagrant_log(logging.DEBUG)
+            except:
+                self._print_vagrant_log(logging.CRITICAL)
+                sys.exit(1)
 
             if snapshot in snapshots:
-                self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, snapshot)
-                try:
-                    self.vag.snapshot_restore(snapshot)
-                except:
-                    self.vag.reload()
+                self._restore_snapshot(snapshot)
                 self.ssh = SSH(self.vag, self.vm_name)
             elif INIT_SNAPSHOT in snapshots:
-                self.log.info("Restoring VM %s (%s) to snapshot '%s'...", self.vm_name, self.ip, INIT_SNAPSHOT)
-                try:
-                    self.vag.snapshot_restore(INIT_SNAPSHOT)
-                except:
-                    self.vag.reload()
+                self._restore_snapshot(INIT_SNAPSHOT)
                 self.ssh = SSH(self.vag, self.vm_name)
                 self._provision_vm(router)
 
-                self.log.info("Creating snapshot '%s' for VM %s (%s)...", snapshot, self.vm_name, self.ip)
-                self.vag.snapshot_save(snapshot)
+                self.log.info("Creating snapshot '%s'...", snapshot)
+                try:
+                    self.vag.snapshot_save(snapshot)
+                    self._print_vagrant_log(logging.DEBUG)
+                except:
+                    self._print_vagrant_log(logging.CRITICAL)
+                    sys.exit(1)
             else:
                 self._start_vm(router)
 
     def destroy(self):
-        self.log.info("Destroying VM %s...", self.vm_name)
+        self.log.info("Destroying VM...")
         try:
             self.vag.destroy()
-            try:
-                shutil.rmtree(self.destination)
-            except:
-                pass
+            self._print_vagrant_log(logging.DEBUG)
         except:
-            self.log.error("Failed")
+            self._print_vagrant_log(logging.CRITICAL)
+            sys.exit(1)
+        try:
+            shutil.rmtree(self.destination)
+        except:
+            pass
 
     def stop(self):
-        self.log.info("Stopping VM %s...", self.vm_name)
+        self.log.info("Stopping VM...")
         try:
             self.vag.halt()
+            self._print_vagrant_log(logging.DEBUG)
         except:
-            self.log.error("Failed")
+            self._print_vagrant_log(logging.CRITICAL)
+            sys.exit(1)

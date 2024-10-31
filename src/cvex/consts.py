@@ -22,3 +22,5 @@ TCPDUMP_LOG_PATH = f"{CVEX_TEMP_FOLDER_LINUX}/{TCPDUMP_LOG}"
 CVEX_TEMP_FOLDER_WINDOWS = r"C:\cvex"
 PROCMON_PML_LOG = "procmon.pml"
 PROCMON_XML_LOG = "procmon.xml"
+
+VAGRANT_LOG = "/tmp/vagrant_cvex.log"

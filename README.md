@@ -39,6 +39,8 @@ sudo apt install alien
 sudo alien -i vagrant-2.4.1-1.x86_64.rpm
 ```
 
+**Do not use** `apt install` to install Vagrant, because it install an old version of Vagrant.
+
 Install Ansible:
 ```
 sudo apt-add-repository ppa:ansible/ansible

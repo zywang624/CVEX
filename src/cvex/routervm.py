@@ -49,7 +49,7 @@ class RouterVM(LinuxVM):
         self.ssh.run_command(f"mkdir {CVEX_TEMP_FOLDER_LINUX}")
         self.ssh.run_command("sudo sysctl net.ipv4.ip_forward=1")
         self.tcpdump_runner = self.ssh.run_command(
-            f"sudo tcpdump -i eth1 -U -w {TCPDUMP_LOG_PATH}", is_async=True)
+            f"sudo tcpdump -i eth1 -w {TCPDUMP_LOG_PATH}", is_async=True, until="listening on")
         self.tcpdump_thread = threading.Thread(target=self._read_output, args=[self.tcpdump_runner])
         self.tcpdump_thread.start()
         for port in ports:

@@ -37,25 +37,52 @@ class SSH:
         message.add_string(signal.Signals.SIGTERM.name[3:])
         runner.channel.transport._send_user_message(message)
 
-    def run_command(self, command: str, is_async: bool = False, until: str = "") -> str | fabric.runners.Remote:
+    def run_command(self, command: str, is_async: bool = False, until: str = "", show_progress: bool = False) -> str | fabric.runners.Remote:
         self.log.info("Executing '%s'...", command)
         if is_async:
             result = self.ssh.run(command, asynchronous=is_async, hide=True)
             if until:
-                while (not any(until in text for text in result.runner.stdout) and
-                       not any(until in text for text in result.runner.stderr)):
+                printed_stdout = 0
+                printed_stderr = 0
+                while True:
+                    printed_stdout_end = len(result.runner.stdout)
+                    printed_stderr_end = len(result.runner.stderr)
+                    for i in range(printed_stdout, printed_stdout_end):
+                        if show_progress:
+                            self.log.info("%s", result.runner.stdout[i])
+                        else:
+                            self.log.debug("%s", result.runner.stdout[i])
+                        if until in result.runner.stdout[i]:
+                            return result.runner
+                    for i in range(printed_stderr, printed_stderr_end):
+                        if show_progress:
+                            self.log.info("%s", result.runner.stderr[i])
+                        else:
+                            self.log.debug("%s", result.runner.stderr[i])
+                        if until in result.runner.stderr[i]:
+                            return result.runner
+                    printed_stdout = printed_stdout_end
+                    printed_stderr = printed_stderr_end
                     time.sleep(0.1)
             return result.runner
         else:
             result = self.ssh.run(command, hide=True)
-            if result.stdout:
-                self.log.debug("Output:\n%s", result.stdout)
+            if show_progress:
+                if result.stdout:
+                    self.log.info("%s", result.stdout)
+                if result.stderr:
+                    self.log.info("%s", result.stderr)
+            else:
+                if result.stdout:
+                    self.log.debug("%s", result.stdout)
+                if result.stderr:
+                    self.log.debug("%s", result.stderr)
             return result.stdout
 
     def upload_file(self, local: str, dest: str):
-        self.log.info("Uploading %s...", dest)
+        self.log.info("Uploading %s -> %s...", local, dest)
         self.ssh.put(local, dest)
 
     def download_file(self, local: str, dest: str):
-        self.log.info("Downloading %s...", dest)
+        self.log.info("Downloading %s -> %s...", dest, local)
         self.ssh.get(dest, local)

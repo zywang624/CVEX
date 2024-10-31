@@ -228,7 +228,7 @@ def main():
                         else:
                             command = f"strace -o {path} {command}"
                 try:
-                    vm.ssh.run_command(command, is_async=is_async, until=until)
+                    vm.ssh.run_command(command, is_async=is_async, until=until, show_progress=True)
                 except Exception as e:
                     log.critical("Command failed: %r", e)
                     succeed = False
