@@ -487,7 +487,7 @@ Great, the exploit has been copied to `ubuntu2`. Update `cvex.yml`:
 blueprint: ubuntu2204-ubuntu2204
 ubuntu1:
   playbook: ubuntu1.yml
-ubuntu1:
+ubuntu2:
   playbook: ubuntu2.yml
 ```
 
