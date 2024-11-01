@@ -24,3 +24,20 @@ PROCMON_PML_LOG = "procmon.pml"
 PROCMON_XML_LOG = "procmon.xml"
 
 VAGRANT_LOG = "/tmp/vagrant_cvex.log"
+
+# In GB
+# Size of ~/.vagrant.d/boxes/bento-VAGRANTSLASH-ubuntu-22.04
+LINUX_VAGRANT_BOX_SIZE = 0.78
+# Size of ~/.vagrant.d/boxes/gusztavvargadr-VAGRANTSLASH-windows-10
+WINDOWS_VAGRANT_BOX_SIZE = 11.0
+# Size of ~/VirtualBox VMs/router_default_xxxxxxxxxxxx_xxxxxx based off bento/ubuntu-22.04: VM + snapshot 'clean' + snapshot 'router'
+ROUTER_VM_SIZE = 3.5
+# Size of ~/VirtualBox VMs/x_default_xxxxxxxxxxxx_xxxxxx based off bento/ubuntu-22.04: VM + snapshot 'clean' + snapshot 'CVE-XXXX-XXXXX/xxxxx'
+UBUNTU_VM_SIZE = 7.6
+# Size of ~/VirtualBox VMs/x_default_xxxxxxxxxxxx_xxxxxx based off gusztavvargadr/windows-10: VM + snapshot 'clean' + snapshot 'CVE-XXXX-XXXXX/xxxxx'
+WINDOWS_VM_SIZE = 25.2
+REQUIRED_FREE_SPACE = 0.5
+# In MB
+LINUX_VM_RAM = 2048
+WINDOWS_VM_RAM = 4096
+REQUIRED_RAM = 2048

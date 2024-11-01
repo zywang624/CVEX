@@ -66,14 +66,19 @@ class VM:
     ip: str
     ssh: SSH
     keep: bool
+    created: bool
 
     def _get_vm_destination(self, vms: list) -> Path:
         path = Path(CVEX_ROOT, self.image.replace("/", "_"), self.version)
         if not path.exists():
-            return Path(path, "1")
+            destination = Path(path, "1")
+            self.log.info("Taking %s", destination)
+            return destination
         instances = [f.name for f in os.scandir(path) if f.is_dir()]
         if not instances:
-            return Path(path, "1")
+            destination = Path(path, "1")
+            self.log.info("Taking %s", destination)
+            return destination
         free_instances = instances
         max_instance = 1
         for instance in instances:
@@ -88,16 +93,19 @@ class VM:
             self.log.info("Looking for a VM with '%s' snapshot...", snapshot)
             for instance in free_instances:
                 destination = Path(path, instance)
-                vag = vagrant.Vagrant(destination)
-                snapshots = vag.snapshot_list()
-                if snapshot in snapshots:
-                    self.log.info("Found %s", destination)
-                    return destination
+                if Path(destination, "Vagrantfile").exists():
+                    vag = vagrant.Vagrant(destination)
+                    snapshots = vag.snapshot_list()
+                    if snapshot in snapshots:
+                        self.log.info("Found %s", destination)
+                        return destination
             destination = Path(path, free_instances[0])
             self.log.info("Taking %s", destination)
             return destination
         else:
-            return Path(path, str(max_instance + 1))
+            destination = Path(path, str(max_instance + 1))
+            self.log.info("Taking %s", destination)
+            return destination
 
     def __init__(self,
                  vms: list,
@@ -117,14 +125,21 @@ class VM:
         global current_ip
         self.ip = f"192.168.56.{current_ip}"
         current_ip += 1
-        self.log.info("IP: %s", self.ip)
         if destination:
             self.destination = destination
         else:
             self.destination = self._get_vm_destination(vms)
+        os.makedirs(self.destination, exist_ok=True)
+        if Path(self.destination, "Vagrantfile").exists():
+            self.created = True
+        else:
+            self.created = False
         log_cm = vagrant.make_file_cm(VAGRANT_LOG, "w")
         self.vag = vagrant.Vagrant(self.destination, out_cm=log_cm, err_cm=log_cm)
         self.keep = keep
+
+    def is_created(self) -> bool:
+        return self.created
 
     def _get_vagrant_log(self) -> str:
         with open(VAGRANT_LOG, "r") as f:
@@ -204,6 +219,7 @@ class VM:
         self.log.info("Starting VM...")
         try:
             self.vag.up()
+            self.created = True
             self._print_vagrant_log(logging.DEBUG)
         except:
             up_log = self._get_vagrant_log()
@@ -258,8 +274,8 @@ class VM:
             sys.exit(1)
 
     def run(self, router = None):
-        if not os.path.exists(self.destination):
-            os.makedirs(self.destination)
+        self.log.info("IP: %s", self.ip)
+        if not Path(self.destination, "Vagrantfile").exists():
             self._init_vm()
             self._start_vm(router)
             return

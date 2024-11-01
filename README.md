@@ -39,7 +39,7 @@ sudo apt install alien
 sudo alien -i vagrant-2.4.1-1.x86_64.rpm
 ```
 
-**Do not use** `apt install` to install Vagrant, because it install an old version of Vagrant.
+**Do not use** `apt install` to install Vagrant, because it installs an old version of Vagrant.
 
 Install Ansible:
 ```
@@ -64,7 +64,7 @@ While in theory Vagrant should work with any VM provider, CVEX was tested only w
 
 ## Run
 
-Execute CVE by providing the CVEX record folder to the `cvex` command:
+Ensure that you have at least 22 GB of free disk space and 8 GB of RAM to run the PoC CVE-0000-00001. Execute it as follows:
 ```
 ~/CVEX$ cvex records/CVE-0000-00001
 ```
@@ -894,7 +894,7 @@ blueprints/blueprint-name
 
 Sometimes VM initialization takes longer than expected:
 ```
-2024-09-13 14:03:41,858 - CRITICAL - [windows] VM windows timed out. Please wait until the VM is started and then re-start CVEX with the '-k' parameter.
+2024-09-13 14:03:41,858 - CRITICAL - [windows] Timed out. Please wait until the VM is started and then re-start CVEX with the '-k' parameter.
 ```
 
 In this case we need to wait until the VM is up and the OS is aready. For example, use the VirtualBox GUI. As soon as the OS fully loads, re-run CVEX with `-k`. With this parameter CVEX uses the VMs that are already running. Be mindful, `cvex -k` will also leave the VMs running (which is great for debugging).

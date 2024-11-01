@@ -170,20 +170,52 @@ def main():
     # Load cvex.yml of the CVE record
     cvex = CVEX(Path(args.cve))
 
-    # Start all VMs
+    # Create VMs
     vms = []
     router = RouterVM(args.keep)
-    router.run()
     vms.append(router)
     cve_name = Path(args.cve).name
     for vm_template in cvex.vm_templates:
         if vm_template.vm_type == VMTemplate.VM_TYPE_LINUX:
             vm = LinuxVM(vms, vm_template, cve_name, keep=args.keep)
-            vm.run(router)
         elif vm_template.vm_type == VMTemplate.VM_TYPE_WINDOWS:
             vm = WindowsVM(vms, vm_template, cve_name, args.keep)
-            vm.run(router)
+        else:
+            log.critical("VM type is not supported: %r", vm_template.vm_type)
         vms.append(vm)
+
+    # Check that the system has enough free disk space and RAM
+    disk_size_needed = REQUIRED_FREE_SPACE   # In gigabytes
+    ram_needed = REQUIRED_RAM           # In megabytes
+    for vm in vms:
+        if vm.vm_name == ROUTER_VM_NAME:
+            if not vm.is_created():
+                disk_size_needed += LINUX_VAGRANT_BOX_SIZE + ROUTER_VM_SIZE
+            ram_needed += LINUX_VM_RAM
+        elif vm.vm_type == VMTemplate.VM_TYPE_LINUX:
+            if not vm.is_created():
+                disk_size_needed += LINUX_VAGRANT_BOX_SIZE + UBUNTU_VM_SIZE
+            ram_needed += LINUX_VM_RAM
+        elif vm.vm_type == VMTemplate.VM_TYPE_WINDOWS:
+            if not vm.is_created():
+                disk_size_needed += WINDOWS_VAGRANT_BOX_SIZE + WINDOWS_VM_SIZE
+            ram_needed += WINDOWS_VM_RAM
+    disk = os.statvfs(Path.home())
+    free_space = disk.f_frsize * disk.f_bavail / (1024. ** 3)
+    total_ram = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (1024 ** 2)
+    log.debug("Execution of %s requires at least %.2fGB of free disk space and %dMB of RAM",
+                    cve_name, disk_size_needed, ram_needed)
+    log.debug("Free disk space: %.2fGB, total RAM: %dMB", free_space, total_ram)
+    if disk_size_needed > free_space or ram_needed > total_ram:
+        log.critical("\x1b[31;1m*************************************************************************\033[0m")
+        log.critical("\x1b[31;1mExecution of %s requires at least %.2fGB of free disk space and %dMB of RAM\033[0m",
+                        cve_name, disk_size_needed, ram_needed)
+        log.critical("\x1b[31;1mFree disk space: %.2fGB, total RAM: %dMB\033[0m", free_space, total_ram)
+        log.critical("\x1b[31;1m*************************************************************************\033[0m")
+
+    # Start all VMs
+    for vm in vms:
+        vm.run()
 
     # Perform pre-exploitation configuration
     router.set_network_interface_ip(router.ip)
