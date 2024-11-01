@@ -105,6 +105,12 @@ class CVEX:
                 self.log.critical("%s: bad ports", cvex_yml)
                 sys.exit(1)
 
+def debug_log(s:str):
+    print("\033[91mwzy_debug_log: "+s+"\033[0m")
+    return
+
+def orange_str(s:str) -> str:
+    return "\033[38;2;255;165;0m" + s + "\033[0m"
 
 def main():
     parser = argparse.ArgumentParser(
@@ -118,6 +124,8 @@ def main():
     parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")
     parser.add_argument("-k", "--keep", help="Keep VMs running", default=False, action="store_true")
     args = parser.parse_args()
+    
+    log.debug(orange_str("successfully running"))
 
     if args.verbose:
         set_log_level(logging.DEBUG)
@@ -217,6 +225,8 @@ def main():
     for vm in vms:
         vm.run()
 
+    log.debug(orange_str("all vms started successfully"))
+
     # Perform pre-exploitation configuration
     router.set_network_interface_ip(router.ip)
     for vm in vms:
@@ -225,10 +235,14 @@ def main():
         vm.set_network_interface_ip(router.ip)
         vm.update_hosts(vms)
 
+    log.debug(orange_str("pre-exploitation conf successfully"))
+
     # Start network traffic sniffing, mitmproxy, API tracing
     router.start_sniffing(cvex.ports)
     for vm in vms:
         vm.start_api_tracing()
+
+    log.debug(orange_str("start sniffing successfully"))
 
     # Execute commands
     succeed = True
@@ -267,17 +281,21 @@ def main():
                     break
                 command_idx += 1
 
+    log.debug(orange_str("commands executed successfully"))
+
     # Stop network traffic sniffing, mitmproxy, API tracing
     if succeed:
         for vm in vms:
             vm.stop_api_tracing(args.output)
         router.stop_sniffing(args.output)
+        log.debug(orange_str("exploiting succeeds"))
 
     # Stop all VMs
     if not args.keep:
         for vm in vms:
             vm.stop()
 
+    log.debug(orange_str("running completed"))
     sys.exit(0)
 
 
