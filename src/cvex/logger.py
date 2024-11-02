@@ -18,3 +18,10 @@ def get_logger(name: str) -> logging.Logger:
 def set_log_level(log_level: int):
     global LOG_LEVEL
     LOG_LEVEL = log_level
+
+def debug_log(s:str):
+    print("\033[91mwzy_debug_log: "+s+"\033[0m")
+    return
+
+def orange_str(s:str) -> str:
+    return "\033[38;2;255;165;0m" + s + "\033[0m"

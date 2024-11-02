@@ -6,7 +6,7 @@ import sys
 import vagrant
 
 from cvex.consts import *
-from cvex.logger import get_logger
+from cvex.logger import get_logger, orange_str
 from cvex.ssh import SSH
 
 
@@ -284,7 +284,8 @@ class VM:
         try:
             status = self.vag.status()
             self._print_vagrant_log(logging.DEBUG)
-        except:
+        except Exception as e:
+            print(orange_str(f"Exception: {e}"))
             self._print_vagrant_log(logging.CRITICAL)
             sys.exit(1)
         snapshot = self._get_snapshot_name()

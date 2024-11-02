@@ -8,7 +8,7 @@ import re
 import yaml
 
 from cvex.consts import *
-from cvex.logger import get_logger, set_log_level
+from cvex.logger import get_logger, set_log_level, orange_str
 from cvex.vm import VM, VMTemplate
 from cvex.windowsvm import WindowsVM
 from cvex.linuxvm import LinuxVM
@@ -105,13 +105,6 @@ class CVEX:
                 self.log.critical("%s: bad ports", cvex_yml)
                 sys.exit(1)
 
-def debug_log(s:str):
-    print("\033[91mwzy_debug_log: "+s+"\033[0m")
-    return
-
-def orange_str(s:str) -> str:
-    return "\033[38;2;255;165;0m" + s + "\033[0m"
-
 def main():
     parser = argparse.ArgumentParser(
         prog="cvex",
@@ -125,11 +118,11 @@ def main():
     parser.add_argument("-k", "--keep", help="Keep VMs running", default=False, action="store_true")
     args = parser.parse_args()
     
-    log.debug(orange_str("successfully running"))
-
     if args.verbose:
         set_log_level(logging.DEBUG)
     log = get_logger("main")
+
+    log.debug(orange_str("successfully running"))
 
     if args.list or args.destroy:
         images = [f.name for f in os.scandir(CVEX_ROOT) if f.is_dir()]
