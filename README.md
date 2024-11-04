@@ -823,9 +823,11 @@ ports: ...       # HTTPS port(s) as integer or list of integers (optional; 443 b
 ```
 
 `command` is treated in a special way:
-1. `%vm_name%` will be replaced with the IP address of the VM: `curl https://%ubuntu%:8080/` will turn into `curl https://192.168.56.3:8080/`
+1. `%vm_name%` will be replaced with the IP address of the VM: `curl https://%ubuntu%:8080/` will turn into `curl https://192.168.56.3:8080/`. Always use `%vm_name%`, **never** hardcode IP addresses!
 2. Optional `&` at the end of the command tells CVEX that it is non-blocking: for `curl https://%ubuntu%:8080/&` CVEX executes `curl https://192.168.56.3:8080/`, and then immediately executes next command without waiting for curl to finish execution
 3. Optional `~~~` splits the command into two parts: 1) the command; 2) the message: for `curl https://%ubuntu%:8080/&~~~Downloaded` CVEX executes `curl https://192.168.56.3:8080/`, then waits until curl prints `Downloaded` to stdout, and then immediately executes next command without waiting for curl to finish execution
+
+`command` is always executed as the user `vagrant`. You may use `sudo` to execute as root, as well as `sudo -u` to execute it as another user.
 
 CVEX blueprints define minimal network deployments:
 - Ubuntu host attacking Window host
@@ -880,6 +882,8 @@ CVE-XXXX-YYYYY
 ├── ...
 └── ansible_playbookN.yml
 ```
+
+In the first comment to the pull request briefly describe the vulnerability.
 
 Use Git LFS (Large File Storage) for big files.
 
