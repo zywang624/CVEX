@@ -1,7 +1,7 @@
 import logging
 import signal
 import time
-
+from pathlib import Path
 import fabric
 import paramiko
 import vagrant
@@ -37,7 +37,12 @@ class SSH:
         message.add_string(signal.Signals.SIGTERM.name[3:])
         runner.channel.transport._send_user_message(message)
 
-    def run_command(self, command: str, is_async: bool = False, until: str = "", show_progress: bool = False) -> str | fabric.runners.Remote:
+    def run_command(self,
+                    command: str,
+                    is_async: bool = False,
+                    until: str = "",
+                    show_progress: bool = False,
+                    output_file: Path | None = None) -> str | fabric.runners.Remote:
         self.log.info("Executing '%s'...", command)
         if is_async:
             result = self.ssh.run(command, asynchronous=is_async, hide=True)
@@ -52,6 +57,9 @@ class SSH:
                             self.log.info("%s", result.runner.stdout[i])
                         else:
                             self.log.debug("%s", result.runner.stdout[i])
+                        if output_file:
+                            with open(output_file, "a") as f:
+                                f.write(result.runner.stdout[i])
                         if until in result.runner.stdout[i]:
                             return result.runner
                     for i in range(printed_stderr, printed_stderr_end):
@@ -59,6 +67,9 @@ class SSH:
                             self.log.info("%s", result.runner.stderr[i])
                         else:
                             self.log.debug("%s", result.runner.stderr[i])
+                        if output_file:
+                            with open(output_file, "a") as f:
+                                f.write(result.runner.stderr[i])
                         if until in result.runner.stderr[i]:
                             return result.runner
                     printed_stdout = printed_stdout_end
@@ -67,16 +78,22 @@ class SSH:
             return result.runner
         else:
             result = self.ssh.run(command, hide=True)
-            if show_progress:
-                if result.stdout:
+            if result.stdout:
+                if show_progress:
                     self.log.info("%s", result.stdout)
-                if result.stderr:
-                    self.log.info("%s", result.stderr)
-            else:
-                if result.stdout:
+                else:
                     self.log.debug("%s", result.stdout)
-                if result.stderr:
+                if output_file:
+                    with open(output_file, "a") as f:
+                        f.write(result.stdout)
+            if result.stderr:
+                if show_progress:
+                    self.log.info("%s", result.stderr)
+                else:
                     self.log.debug("%s", result.stderr)
+                if output_file:
+                    with open(output_file, "a") as f:
+                        f.write(result.stderr)
             return result.stdout
 
     def upload_file(self, local: str, dest: str):

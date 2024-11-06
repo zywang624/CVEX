@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import vagrant
+import re
 
 from cvex.consts import *
 from cvex.logger import get_logger
@@ -39,6 +40,12 @@ class VMTemplate:
             self.log.critical("Unknown VM type: %r", vm_type)
             sys.exit(1)
         self.vm_type = vm_type
+        if vm_type == self.VM_TYPE_LINUX and trace:
+            try:
+                re.compile(trace)
+            except:
+                self.log.critical("Regular expression '%s' is not correct", trace)
+                sys.exit(1)
         self.trace = trace
         for playbook in playbooks:
             if not playbook.exists():

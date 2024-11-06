@@ -260,8 +260,14 @@ def main():
                             command = f"sudo strace -o {path} {command[5:]}"
                         else:
                             command = f"strace -o {path} {command}"
+                
                 try:
-                    vm.ssh.run_command(command, is_async=is_async, until=until, show_progress=True)
+                    vm.ssh.run_command(
+                        command,
+                        is_async=is_async,
+                        until=until,
+                        show_progress=True,
+                        output_file=Path(args.output, f"{vm.vm_name}_{COMMAND_NAME}_{command_idx}.{COMMAND_EXT}"))
                 except Exception as e:
                     log.critical("Command failed: %r", e)
                     succeed = False

@@ -23,6 +23,9 @@ CVEX_TEMP_FOLDER_WINDOWS = r"C:\cvex"
 PROCMON_PML_LOG = "procmon.pml"
 PROCMON_XML_LOG = "procmon.xml"
 
+COMMAND_NAME = "command"
+COMMAND_EXT = "txt"
+
 VAGRANT_LOG = "/tmp/vagrant_cvex.log"
 
 # In GB
