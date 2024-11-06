@@ -885,7 +885,7 @@ CVE-XXXX-YYYYY
 
 In the first comment to the pull request briefly describe the vulnerability.
 
-Use Git LFS (Large File Storage) for big files.
+Always keep vulnerable software and exploit in the `data` folder. Use Git LFS (Large File Storage) for big files. Do not rely on `apt install`, `pip`, URLs or similar methods do download vulnerable software or exploits.
 
 To contribute a new blueprint, create a pull request for a new subfolder inside [blueprints](blueprints) with the following infrastructure:
 ```
