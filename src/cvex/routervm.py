@@ -8,12 +8,12 @@ from cvex.linuxvm import LinuxVM
 
 
 class RouterVM(LinuxVM):
-    def __init__(self, keep: bool = False):
+    def __init__(self, keep: bool = False, new: bool = False):
         template = VMTemplate(ROUTER_VM_NAME,
                               ROUTER_VM_IMAGE,
                               ROUTER_VM_VERSION,
                               VMTemplate.VM_TYPE_LINUX)
-        super().__init__([], template, "", destination=ROUTER_VM_DESTINATION, keep=keep)
+        super().__init__([], template, "", destination=ROUTER_VM_DESTINATION, keep=keep, new=new)
 
     def init(self, router: VM | None = None):
         self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "router.yml"))

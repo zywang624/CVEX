@@ -16,8 +16,9 @@ class LinuxVM(VM):
                  template: VMTemplate,
                  cve: str,
                  destination: Path | None = None,
-                 keep: bool = False):
-        super().__init__(vms, template, cve, destination, keep)
+                 keep: bool = False,
+                 new: bool = False):
+        super().__init__(vms, template, cve, destination, keep, new)
 
     def init(self, router: VM | None = None):
         self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "linux.yml"))

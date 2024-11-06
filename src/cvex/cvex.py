@@ -117,6 +117,7 @@ def main():
     parser.add_argument("-d", "--destroy", help="Name of the cached VM to destroy or \"all\"")
     parser.add_argument("-v", "--verbose", help="Verbose logs", default=False, action="store_true")
     parser.add_argument("-k", "--keep", help="Keep VMs running", default=False, action="store_true")
+    parser.add_argument("-n", "--new", help="Regenerate snapshots", default=False, action="store_true")
     args = parser.parse_args()
 
     if args.verbose:
@@ -177,9 +178,9 @@ def main():
     cve_name = Path(args.cve).name
     for vm_template in cvex.vm_templates:
         if vm_template.vm_type == VMTemplate.VM_TYPE_LINUX:
-            vm = LinuxVM(vms, vm_template, cve_name, keep=args.keep)
+            vm = LinuxVM(vms, vm_template, cve_name, keep=args.keep, new=args.new)
         elif vm_template.vm_type == VMTemplate.VM_TYPE_WINDOWS:
-            vm = WindowsVM(vms, vm_template, cve_name, args.keep)
+            vm = WindowsVM(vms, vm_template, cve_name, args.keep, new=args.new)
         else:
             log.critical("VM type is not supported: %r", vm_template.vm_type)
         vms.append(vm)

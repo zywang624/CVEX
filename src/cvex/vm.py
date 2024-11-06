@@ -66,6 +66,7 @@ class VM:
     ip: str
     ssh: SSH
     keep: bool
+    new: bool
     created: bool
 
     def _get_vm_destination(self, vms: list) -> Path:
@@ -112,7 +113,8 @@ class VM:
                  template: VMTemplate,
                  cve: str,
                  destination: Path | None = None,
-                 keep: bool = False):
+                 keep: bool = False,
+                 new: bool = False):
         self.log = get_logger(template.vm_name)
         self.vm_name = template.vm_name
         self.image = template.image
@@ -137,6 +139,7 @@ class VM:
         log_cm = vagrant.make_file_cm(VAGRANT_LOG, "w")
         self.vag = vagrant.Vagrant(self.destination, out_cm=log_cm, err_cm=log_cm)
         self.keep = keep
+        self.new = new
 
     def is_created(self) -> bool:
         return self.created
@@ -333,11 +336,23 @@ class VM:
                 self._print_vagrant_log(logging.CRITICAL)
                 sys.exit(1)
 
-            if snapshot in snapshots:
+            if snapshot in snapshots and not self.new:
                 self._restore_snapshot(snapshot)
                 self.ssh = SSH(self.vag, self.vm_name)
             elif INIT_SNAPSHOT in snapshots:
                 self._restore_snapshot(INIT_SNAPSHOT)
+
+                # Always delete the snapshot after reverting to INIT_SNAPSHOT,
+                # otherwise deleting may take too much time
+                if self.new:
+                    self.log.info("Deleting snapshot '%s'...", snapshot)
+                    try:
+                        self.vag.snapshot_delete(snapshot)
+                        self._print_vagrant_log(logging.DEBUG)
+                    except:
+                        self._print_vagrant_log(logging.CRITICAL)
+                        sys.exit(1)
+
                 self.ssh = SSH(self.vag, self.vm_name)
                 self._provision_vm(router)
 

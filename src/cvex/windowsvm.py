@@ -13,8 +13,9 @@ class WindowsVM(VM):
                  vms: list,
                  template: VMTemplate,
                  cve: str,
-                 keep: bool = False):
-        super().__init__(vms, template, cve, keep=keep)
+                 keep: bool = False,
+                 new: bool = False):
+        super().__init__(vms, template, cve, keep=keep, new=new)
 
     def init(self, router: VM | None = None):
         self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "windows.yml"))
