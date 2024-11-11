@@ -14,6 +14,7 @@ from cvex.ssh import SSH
 class VMTemplate:
     VM_TYPE_LINUX = "linux"
     VM_TYPE_WINDOWS = "windows"
+    VM_TYPE_UNKNOWN = "unknown"
 
     log: logging.Logger
     vm_name: str
@@ -22,7 +23,7 @@ class VMTemplate:
     vm_type: str
     trace: str | None
     playbooks: list[Path]
-    command: list[str] | None
+    command: list[str]
 
     def __init__(self,
                  vm_name: str,
@@ -31,7 +32,7 @@ class VMTemplate:
                  vm_type: str,
                  trace: str | None = None,
                  playbooks: list[Path] = [],
-                 command: list[str] | None = None):
+                 command: list[str] = []):
         self.log = get_logger(vm_name)
         self.vm_name = vm_name
         self.image = image
@@ -65,7 +66,7 @@ class VM:
     vm_type: str
     trace: str | None
     playbooks: list[Path]
-    command: list[str] | None
+    command: list[str]
     cve: str
     destination: Path
     vag: vagrant.Vagrant
@@ -374,6 +375,9 @@ class VM:
                 self._start_vm(router)
 
     def destroy(self):
+        if not self.exists():
+            self.log.error("VM does not exist")
+            return
         self.log.info("Destroying VM...")
         try:
             self.vag.destroy()
@@ -387,6 +391,9 @@ class VM:
             pass
 
     def stop(self):
+        if not self.exists():
+            self.log.error("VM does not exist")
+            return
         self.log.info("Stopping VM...")
         try:
             self.vag.halt()
@@ -394,3 +401,6 @@ class VM:
         except:
             self._print_vagrant_log(logging.CRITICAL)
             sys.exit(1)
+
+    def exists(self):
+        return Path(self.destination, "Vagrantfile").exists()
