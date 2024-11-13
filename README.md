@@ -830,6 +830,19 @@ ports: ...       # HTTPS port(s) as integer or list of integers (optional; 443 b
 
 `command` is always executed as the user `vagrant`. You may use `sudo` to execute as root, as well as `sudo -u` to execute it as another user.
 
+Commands are executed in the same order as present in cvex.yml. In the example below commands are executed in this order: command1, command2, command3, command4.
+```
+blueprint: ubuntu2204-ubuntu2204
+ubuntu2:
+  command:
+    - "command1"
+    - "command2"
+ubuntu1:
+  command:
+    - "command3"
+    - "command4"
+```
+
 CVEX blueprints define minimal network deployments:
 - Ubuntu host attacking Window host
 - Window host attacking Ubuntu host

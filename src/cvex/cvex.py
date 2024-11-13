@@ -49,7 +49,7 @@ class CVEX:
 
         blueprint_yml = Path(Path(__file__).parent.parent.parent, "blueprints", cvex['blueprint'], "blueprint.yml")
         if not blueprint_yml.exists():
-            self.log.critical("Blueprint %r does not exist", blueprint_yml)
+            self.log.critical("Blueprint %s does not exist", cvex['blueprint'])
             sys.exit(1)
         try:
             with open(blueprint_yml, "r") as f:
@@ -57,8 +57,15 @@ class CVEX:
         except:
             self.log.critical("%s is not a YAML file", blueprint_yml.name)
             sys.exit(1)
+        for vm_name in vm_templates:
+            if vm_name not in cvex:
+                self.log.critical("%s: configuration mismatch", cvex_yml)
+                sys.exit(1)
         self.vm_templates = []
-        for vm_name, data in vm_templates.items():
+        for vm_name in cvex:
+            if vm_name not in vm_templates:
+                continue
+            data = vm_templates[vm_name]
             if 'image' not in data or 'version' not in data or 'type' not in data:
                 self.log.critical("%s: configuration mismatch", blueprint_yml)
                 sys.exit(1)
@@ -67,19 +74,18 @@ class CVEX:
                 playbooks.append(Path(Path(__file__).parent.parent.parent, "blueprints", cvex['blueprint'], data['playbook']))
             trace = None
             command = []
-            if vm_name in cvex:
-                if 'trace' in cvex[vm_name]:
-                    trace = cvex[vm_name]['trace']
-                if 'playbook' in cvex[vm_name]:
-                    playbooks.append(Path(cve_dir, cvex[vm_name]['playbook']))
-                if 'command' in cvex[vm_name]:
-                    if type(cvex[vm_name]['command']) == str:
-                        command = [cvex[vm_name]['command']]
-                    elif type(cvex[vm_name]['command']) == list:
-                        command = cvex[vm_name]['command']
-                    else:
-                        self.log.critical("%s: configuration mismatch", cvex_yml)
-                        sys.exit(1)
+            if 'trace' in cvex[vm_name]:
+                trace = cvex[vm_name]['trace']
+            if 'playbook' in cvex[vm_name]:
+                playbooks.append(Path(cve_dir, cvex[vm_name]['playbook']))
+            if 'command' in cvex[vm_name]:
+                if type(cvex[vm_name]['command']) == str:
+                    command = [cvex[vm_name]['command']]
+                elif type(cvex[vm_name]['command']) == list:
+                    command = cvex[vm_name]['command']
+                else:
+                    self.log.critical("%s: configuration mismatch", cvex_yml)
+                    sys.exit(1)
             self.vm_templates.append(VMTemplate(vm_name,
                                             data['image'],
                                             data['version'],
