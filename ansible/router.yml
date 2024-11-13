@@ -1,11 +1,10 @@
 - name: Router
   hosts: all
   tasks:
-    - name: Pull mitmproxy-10.3.1-linux-x86_64.tar.gz
+    - name: Unarchive mitmproxy-10.3.1-linux-x86_64.tar.gz
       ansible.builtin.unarchive:
-        src: https://downloads.mitmproxy.org/10.3.1/mitmproxy-10.3.1-linux-x86_64.tar.gz
+        src: ./data/mitmproxy-10.3.1-linux-x86_64.tar.gz
         dest: /usr/bin
-        remote_src: yes
       become: true
     - name: Run mitmdump
       ansible.builtin.command:

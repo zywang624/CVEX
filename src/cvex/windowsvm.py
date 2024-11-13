@@ -9,6 +9,8 @@ from cvex.vm import VM, VMTemplate
 
 
 class WindowsVM(VM):
+    network_interface_initialized: bool
+
     def __init__(self,
                  vms: list,
                  template: VMTemplate,
@@ -16,9 +18,13 @@ class WindowsVM(VM):
                  keep: bool = False,
                  new: bool = False):
         super().__init__(vms, template, cve, keep=keep, new=new)
+        self.network_interface_initialized = False
 
     def init(self, router: VM | None = None):
-        self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "windows.yml"))
+        self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "windows_tools.yml"))
+        if router:
+            self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "windows_router.yml"))
+        self.set_network_interface_ip(router)
 
     def update_hosts(self, vms: list[VM]):
         remote_hosts = "/C:\\Windows\\System32\\drivers\\etc\\hosts"
@@ -28,10 +34,9 @@ class WindowsVM(VM):
             hosts = f.read()
         ips = "\r\n"
         for vm in vms:
-            if vm != self:
-                line = f"{vm.ip} {vm.vm_name}\r\n"
-                if line not in hosts:
-                    ips += line
+            line = f"{vm.ip} {vm.vm_name}\r\n"
+            if line not in hosts:
+                ips += line
         if ips != "\r\n":
             self.log.debug("Setting ip hosts: %s", ips)
             hosts += ips
@@ -75,7 +80,13 @@ class WindowsVM(VM):
             f.write(data)
         return inventory
 
-    def set_network_interface_ip(self, router_ip: str):
+    def set_network_interface_ip(self, router: VM | None = None):
+        if self.network_interface_initialized:
+            return
+        if router:
+            router_ip = router.ip
+        else:
+            router_ip = "192.168.56.1"
         netsh_interface = self.ssh.run_command("netsh interface ipv4 show inter")
         id = re.search(r"(\d+).+?Ethernet 2", netsh_interface)
         if not id:
@@ -99,6 +110,9 @@ class WindowsVM(VM):
             self.ssh.run_command("powershell \"Enable-NetAdapter -Name 'Ethernet 2' -Confirm:$False\"")
         except:
             pass
+        self.network_interface_initialized = True
+
+    def set_routing(self, router: VM):
         self.ssh.run_command("route DELETE 192.168.56.0")
         route_print = self.ssh.run_command("route print")
         id = re.search(r"(\d+)\.\.\.([0-9a-fA-F]{2} ){6}\.\.\.\.\.\.Intel\(R\) PRO/1000 MT Desktop Adapter #2",
@@ -107,7 +121,7 @@ class WindowsVM(VM):
             self.log.critical("'route print' returned unknown data:\n%s", route_print)
             sys.exit(1)
         id = id.group(1)
-        self.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {router_ip} if {id}")
+        self.ssh.run_command(f"route ADD 192.168.56.0 MASK 255.255.255.0 {router.ip} if {id}")
 
     def start_api_tracing(self):
         try:

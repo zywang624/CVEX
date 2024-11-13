@@ -11,6 +11,8 @@ from cvex.vm import VM, VMTemplate
 
 
 class LinuxVM(VM):
+    network_interface_initialized: bool
+
     def __init__(self,
                  vms: list,
                  template: VMTemplate,
@@ -19,9 +21,12 @@ class LinuxVM(VM):
                  keep: bool = False,
                  new: bool = False):
         super().__init__(vms, template, cve, destination, keep, new)
+        self.network_interface_initialized = False
 
     def init(self, router: VM | None = None):
-        self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "linux.yml"))
+        if router:
+            self.playbooks.insert(0, Path(Path(__file__).parent.parent.parent, "ansible", "linux_router.yml"))
+        self.set_network_interface_ip(router)
 
     def update_hosts(self, vms: list[VM]):
         remote_hosts = "/etc/hosts"
@@ -31,10 +36,9 @@ class LinuxVM(VM):
             hosts = f.read()
         ips = "\n"
         for vm in vms:
-            if vm != self:
-                line = f"{vm.ip} {vm.vm_name}\n"
-                if line not in hosts:
-                    ips += line
+            line = f"{vm.ip} {vm.vm_name}\n"
+            if line not in hosts:
+                ips += line
         if ips != "\n":
             self.log.debug("Setting ip hosts: %s", ips)
             hosts += ips
@@ -56,7 +60,7 @@ class LinuxVM(VM):
             f.write(data)
         return inventory
     
-    def _set_network_interface_ip(self, router_ip: str, netcfg: dict, netcfg_dest: str):
+    def _update_netplan_config(self, netcfg: dict, netcfg_dest: str):
         netcfg_local = tempfile.NamedTemporaryFile()
         with open(netcfg_local.name, "w") as f:
             yaml.dump(netcfg, f)
@@ -64,13 +68,11 @@ class LinuxVM(VM):
         self.ssh.run_command(f"sudo mv /tmp/cvex.yaml {netcfg_dest}")
         self.ssh.run_command("sudo ip link set eth1 up")
         self.ssh.run_command("sudo netplan apply")
-        try:
-            self.ssh.run_command(f"sudo ip route change 192.168.56.0/24 via {router_ip} dev eth1")
-        except:
-            pass
-        self.ssh.run_command("sudo systemctl restart ufw")
+        self.network_interface_initialized = True
 
-    def set_network_interface_ip(self, router_ip: str):
+    def set_network_interface_ip(self, router: VM | None = None):
+        if self.network_interface_initialized:
+            return
         yamls = self.ssh.run_command("ls /etc/netplan")
         for fil in re.findall(r"([\w\.\-]+\.yaml)", yamls):
             netcfg_dest = f"/etc/netplan/{fil}"
@@ -87,26 +89,30 @@ class LinuxVM(VM):
             self.log.debug("Old %s: %r", netcfg_dest, netcfg)
             netcfg['network']['ethernets']['eth1'] = {
                 "dhcp4" : "no",
-                "addresses" : [f"{self.ip}/24"],
-                "routes" : [{"to" : "default", "via" : router_ip}]
+                "addresses" : [f"{self.ip}/24"]
             }
-            self._set_network_interface_ip(router_ip, netcfg, netcfg_dest)
+            self._update_netplan_config(netcfg, netcfg_dest)
             return
         netcfg = {
             "network" : {
                 "ethernets" : {
                     "eth1" : {
                         "dhcp4" : "no",
-                        "addresses" : [f"{self.ip}/24"],
-                        "routes" : [{"to" : "default", "via" : router_ip}]
+                        "addresses" : [f"{self.ip}/24"]
                     }
                 },
                 "version" : 2
             }
         }
         self.log.debug("cvex.yaml: %r", netcfg)
-        self._set_network_interface_ip(router_ip, netcfg, "/etc/netplan/cvex.yaml")
+        self._update_netplan_config(netcfg, "/etc/netplan/cvex.yaml")
 
+    def set_routing(self, router: VM):
+        self.ssh.run_command("sudo ip route del 192.168.56.0/24")
+        self.ssh.run_command("sudo ip route del default")
+        self.ssh.run_command(f"sudo ip route add 192.168.56.0/24 via {router.ip} dev eth1 onlink")
+        self.ssh.run_command("sudo sysctl net.ipv4.conf.all.accept_redirects=0")
+        self.ssh.run_command("sudo sysctl net.ipv4.conf.default.accept_redirects=0")
 
     def start_api_tracing(self):
         if not self.trace:

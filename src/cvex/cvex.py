@@ -218,8 +218,11 @@ class CVEX:
 
         # Create VMs
         vms = []
-        router = RouterVM(args.keep)
-        vms.append(router)
+        if len(self.vm_templates) > 1:
+            router = RouterVM(args.keep)
+            vms.append(router)
+        else:
+            router = None
         cve_name = Path(args.cve).absolute().name
         for vm_template in self.vm_templates:
             if vm_template.vm_type == VMTemplate.VM_TYPE_LINUX:
@@ -227,7 +230,7 @@ class CVEX:
             elif vm_template.vm_type == VMTemplate.VM_TYPE_WINDOWS:
                 vm = WindowsVM(vms, vm_template, cve_name, args.keep, new=args.new)
             else:
-                self.log.critical("VM type is not supported: %r", vm_template.vm_type)
+                self.log.error("VM type is not supported: %r", vm_template.vm_type)
             vms.append(vm)
 
         # Check that the system has enough free disk space and RAM
@@ -253,28 +256,28 @@ class CVEX:
                         cve_name, disk_size_needed, ram_needed)
         self.log.debug("Free disk space: %.2fGB, total RAM: %dMB", free_space, total_ram)
         if disk_size_needed > free_space or ram_needed > total_ram:
-            self.log.critical("\x1b[31;1m*************************************************************************\033[0m")
-            self.log.critical("\x1b[31;1mExecution of %s requires at least %.2fGB of free disk space and %dMB of RAM\033[0m",
+            self.log.warning("\x1b[31;1m*************************************************************************\033[0m")
+            self.log.warning("\x1b[31;1mExecution of %s requires at least %.2fGB of free disk space and %dMB of RAM\033[0m",
                             cve_name, disk_size_needed, ram_needed)
-            self.log.critical("\x1b[31;1mFree disk space: %.2fGB, total RAM: %dMB\033[0m", free_space, total_ram)
-            self.log.critical("\x1b[31;1m*************************************************************************\033[0m")
+            self.log.warning("\x1b[31;1mFree disk space: %.2fGB, total RAM: %dMB\033[0m", free_space, total_ram)
+            self.log.warning("\x1b[31;1m*************************************************************************\033[0m")
 
         # Start all VMs
         for vm in vms:
-            vm.run()
+            vm.run(router)
 
-        # Perform pre-exploitation configuration
-        router.set_network_interface_ip(router.ip)
+        # Preconfigure VMs
+        if router:
+            router.set_network_interface_ip()
+            router.set_routing()
+            router.start_sniffing(self.ports)
         for vm in vms:
-            if vm == router:
-                continue
-            vm.set_network_interface_ip(router.ip)
-            vm.update_hosts(vms)
-
-        # Start network traffic sniffing, mitmproxy, API tracing
-        router.start_sniffing(self.ports)
-        for vm in vms:
-            vm.start_api_tracing()
+            if vm != router:
+                vm.set_network_interface_ip(router)
+                if router:
+                    vm.set_routing(router)
+                vm.update_hosts(vms)
+                vm.start_api_tracing()
 
         # Execute commands
         succeed = True
@@ -299,14 +302,18 @@ class CVEX:
         if succeed:
             for vm in vms:
                 vm.stop_api_tracing(args.output)
-            router.stop_sniffing(args.output)
+            if router:
+                router.stop_sniffing(args.output)
 
         # Stop all VMs
         if not args.keep:
             for vm in vms:
                 vm.stop()
 
-        sys.exit(0)
+        if succeed:
+            sys.exit(0)
+        else:
+            sys.exit(1)
 
 
 def main():
