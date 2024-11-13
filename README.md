@@ -29,6 +29,8 @@ source venv/bin/activate
 Install CVEX:
 ```
 ~/CVEX$ sudo apt update
+~/CVEX$ sudo apt install git-lfs -y
+~/CVEX$ git lfs pull
 ~/CVEX$ pip install -e .
 ```
 

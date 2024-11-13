@@ -20,18 +20,21 @@ class CVEX:
     vm_templates: list[VMTemplate]
     ports: list[int]
 
+    def _check_for_lfs_files(self, dir: Path):
+        for root, dirs, files in os.walk(dir):
+            for fil in files:
+                with open(Path(root, fil), "rb") as f:
+                    if b"git-lfs.github.com" in f.readline(256):
+                        self.log.critical("Git LFS files detected. Please install Git LFS and pull the files: sudo apt install git-lfs -y; git lfs pull")
+                        sys.exit(1)
+
     def _read_cvex(self, cve_dir: Path):
         cvex_yml = Path(cve_dir, CVEX_FILE)
         if not cvex_yml.exists():
             self.log.critical("%s does not exist", cvex_yml)
             sys.exit(1)
 
-        for root, dirs, files in os.walk(Path(cve_dir, "data")):
-            for fil in files:
-                with open(Path(root, fil), "rb") as f:
-                    if b"git-lfs.github.com" in f.readline(256):
-                        self.log.critical("Git LFS files detected. Please install Git LFS and pull the files: sudo apt install git-lfs; git lfs pull")
-                        sys.exit(1)
+        self._check_for_lfs_files(Path(cve_dir, "data"))
 
         try:
             with open(cvex_yml, "r") as f:
@@ -212,6 +215,8 @@ class CVEX:
         if not args.cve or not Path(args.cve).exists():
             self.log.critical("CVE directory is mandatory")
             sys.exit(1)
+
+        self._check_for_lfs_files(Path(Path(__file__).parent.parent.parent, "ansible", "data"))
 
         # Load cvex.yml of the CVE record
         self._read_cvex(Path(args.cve))
