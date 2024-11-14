@@ -26,8 +26,6 @@ PROCMON_XML_LOG = "procmon.xml"
 COMMAND_NAME = "command"
 COMMAND_EXT = "txt"
 
-VAGRANT_LOG = "/tmp/vagrant_cvex.log"
-
 # In GB
 # Size of ~/.vagrant.d/boxes/bento-VAGRANTSLASH-ubuntu-22.04
 LINUX_VAGRANT_BOX_SIZE = 0.78

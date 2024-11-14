@@ -5,6 +5,7 @@ import subprocess
 import sys
 import vagrant
 import re
+import uuid
 
 from cvex.consts import *
 from cvex.logger import get_logger
@@ -144,16 +145,23 @@ class VM:
             self.created = True
         else:
             self.created = False
-        log_cm = vagrant.make_file_cm(VAGRANT_LOG, "w")
+        self.vagrant_log = f"/tmp/vagrant_{str(uuid.uuid4())}.log"
+        log_cm = vagrant.make_file_cm(self.vagrant_log, "w")
         self.vag = vagrant.Vagrant(self.destination, out_cm=log_cm, err_cm=log_cm)
         self.keep = keep
         self.new = new
+
+    def __del__(self):
+        try:
+            os.remove(self.vagrant_log)
+        except:
+            pass
 
     def is_created(self) -> bool:
         return self.created
 
     def _get_vagrant_log(self) -> str:
-        with open(VAGRANT_LOG, "r") as f:
+        with open(self.vagrant_log, "r") as f:
             return f.read()
         
     def _print_vagrant_log(self, log_level: int):
