@@ -1,0 +1,74 @@
+---
+- name: Install polkit 0.104 vulnerable to privilege escalation (CVE-2021-4034)
+  hosts: all
+  become: yes
+  vars:
+    polkit_version: "0.104"
+    install_dir: "/opt"
+
+  become_user: root
+
+  tasks:
+    - name:
+      ansible.builtin.user:
+        name: guest
+        uid: 1001
+        create_home: yes
+
+    - name:
+      ansible.builtin.user:
+        name: guest
+        uid: 1001
+        create_home: yes
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install dependencies
+      ansible.builtin.apt:
+        pkg:
+          - build-essential
+          - make
+          - autoconf
+          - automake
+          - libtool
+          - pkg-config
+          - libglib2.0-dev 
+          - libpolkit-gobject-1-dev
+          - libexpat1-dev
+          - libpam0g-dev
+          - intltool
+
+    - name: Copy vulnerable polkit to target
+      copy:
+        src: "./data/polkit-{{ polkit_version }}.tar.gz"
+        dest: "{{ install_dir }}/polkit-{{ polkit_version }}.tar.gz"
+
+
+    - name: Extract vulnerable polkit
+      ansible.builtin.unarchive:
+        src: "{{ install_dir }}/polkit-{{ polkit_version }}.tar.gz"
+        dest: "{{ install_dir }}"
+        remote_src: yes
+
+    - name: Compile polkit from source
+      command:
+        cmd: "{{ item }}"
+        chdir: "{{ install_dir }}/polkit-{{ polkit_version }}"
+      loop:
+        - ./configure
+        - make
+        - make install
+
+    - name: Verify polkit version
+      command:
+        cmd: /usr/local/bin/pkexec --version
+      register: pkexec_version_output
+
+    - name: Copy root secret info to root user
+      copy:
+        src: "./data/root_secret.txt"
+        dest: "/root/root_secret.txt"
+        mode: "0700"
+        owner: root

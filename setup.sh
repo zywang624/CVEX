@@ -1,3 +1,11 @@
+sudo apt update
+sudo apt install zsh -y
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+vim ~/.zshrc
+
+git config --global user.email 891922758@qq.com
+git config --global user.name vincent
+
 sudo apt install python3.10-venv -y
 
 python3 -m venv venv
