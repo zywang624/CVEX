@@ -1,5 +1,9 @@
-blueprint: ubuntu2204
+blueprint: ubuntu2004
 ubuntu:
   playbook: ubuntu.yml
   command:
-    - "/usr/local/bin/pkexec cat /root/root_secret.txt"
+    # - "cat /root/root_secret.txt"
+    # - "/home/guest/exploit.sh"
+    # - "su - hacker -c \"cat /root/root_secret.txt\""
+    - "echo happy"
+

@@ -1,0 +1,10 @@
+- name: Install the bashdoor exploit
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Copy exploit.py to /home/vagrant/
+      ansible.builtin.copy:
+        src: ./data/exploit.py
+        dest: /home/vagrant/exploit.py
+        mode: '0777'

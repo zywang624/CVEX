@@ -1,0 +1,194 @@
+---
+- name: Set up the victim machine with exim-4.87
+  hosts: all
+  become: yes
+  vars:
+    exim_version: "4.87"
+    install_dir: "/opt"
+    bootscript_name: "blfs-bootscripts-20160902"
+
+  become_user: root
+
+  # tasks:
+  #   - name: Update apt cache
+  #     apt:
+  #       update_cache: yes
+
+  #   - name: Install dependencies
+  #     ansible.builtin.apt:
+  #       pkg:
+  #         - build-essential 
+  #         - libssl-dev
+  #         - libpcre3-dev
+  #         - libdb-dev
+  #         - libx11-dev
+  #         - libxt-dev
+  #         - libxaw7-dev
+  #         - libgdbm-dev
+
+  #   - name: Copy vulnerable exim to target
+  #     copy:
+  #       src: "./data/exim-{{ exim_version }}.tar.gz"
+  #       dest: "{{ install_dir }}/exim-{{ exim_version }}.tar.gz"
+
+  #   - name: Extract vulnerable exim
+  #     ansible.builtin.unarchive:
+  #       src: "{{ install_dir }}/exim-{{ exim_version }}.tar.gz"
+  #       dest: "{{ install_dir }}"
+  #       remote_src: yes
+
+  #   - name: Create exim group with GID 31
+  #     ansible.builtin.group:
+  #       name: exim
+  #       gid: 31
+  #       state: present
+
+  #   - name: Create exim user with UID 31
+  #     ansible.builtin.user:
+  #       name: exim
+  #       comment: "Exim Daemon"
+  #       group: exim
+  #       uid: 31
+  #       shell: /bin/false
+  #       home: /dev/null
+  #       state: present
+
+  #   # make exim
+  #   - name: Modify BIN_DIR in EDITME file
+  #     ansible.builtin.lineinfile:
+  #       path: "{{ install_dir }}/exim-{{ exim_version }}/src/EDITME"
+  #       regexp: '^BIN_DIR.*$'
+  #       line: 'BIN_DIRECTORY=/usr/sbin'
+
+  #   - name: Modify CONF in EDITME file
+  #     ansible.builtin.lineinfile:
+  #       path: "{{ install_dir }}/exim-{{ exim_version }}/src/EDITME"
+  #       regexp: '^CONF.*$'
+  #       line: 'CONFIGURE_FILE=/etc/exim.conf'
+
+  #   - name: Modify EXIM_USER in EDITME file
+  #     ansible.builtin.lineinfile:
+  #       path: "{{ install_dir }}/exim-{{ exim_version }}/src/EDITME"
+  #       regexp: '^EXIM_USER.*$'
+  #       line: 'EXIM_USER=exim'
+
+  #   - name: Comment EXIM_MONITOR in EDITME file
+  #     ansible.builtin.lineinfile:
+  #       path: "{{ install_dir }}/exim-{{ exim_version }}/src/EDITME"
+  #       regexp: '^EXIM_MONITOR'
+  #       line: '#EXIM_MONITOR'
+
+  #   - name: Create Local/Makefile with additional configurations
+  #     copy:
+  #       src: "{{ install_dir }}/exim-{{ exim_version }}/src/EDITME"
+  #       dest: "{{ install_dir }}/exim-{{ exim_version }}/Local/Makefile"
+  #       remote_src: yes
+
+  #   - name: Append a USE_GDBM to the Makefile
+  #     lineinfile:
+  #       path: "{{ install_dir }}/exim-{{ exim_version }}/Local/Makefile"
+  #       line: 'USE_GDBM = yes'
+  #       state: present
+
+  #   - name: Append a DBMLIB to the Makefile
+  #     lineinfile:
+  #       path: "{{ install_dir }}/exim-{{ exim_version }}/Local/Makefile"
+  #       line: 'DBMLIB = -lgdbm'
+  #       state: present
+
+  #   # - name: Verify gdbm version
+  #   #   ansible.builtin.shell: "/sbin/ldconfig -p | grep gdbm"
+  #   #   register: gdbm_version_output
+
+  #   # - name: Display gdbm version
+  #   #   debug:
+  #   #     msg: "{{ gdbm_version_output.stdout_lines }}"
+
+  #   # - name: Refresh ldconfig
+  #   #   ansible.builtin.shell: "/sbin/ldconfig"
+
+  #   - name: Run make to build exim
+  #     ansible.builtin.shell: make VERBOSE=1
+  #     args:
+  #       chdir: "{{ install_dir }}/exim-{{ exim_version }}"
+
+  #   # make install
+  #   - name: Install exim
+  #     ansible.builtin.shell: make install
+  #     args:
+  #       chdir: "{{ install_dir }}/exim-{{ exim_version }}"
+
+  #   - name: Install man page
+  #     ansible.builtin.copy:
+  #       src: "{{ install_dir }}/exim-{{ exim_version }}/doc/exim.8"
+  #       dest: /usr/share/man/man8/exim.8
+  #       mode: '0644'
+  #       remote_src: yes
+
+  #   - name: Create directory for documentation
+  #     ansible.builtin.file:
+  #       path: /usr/share/doc/exim-4.87
+  #       state: directory
+  #       mode: '0755'
+
+  #   - name: Install documentation
+  #     ansible.builtin.copy:
+  #       src: "{{ install_dir }}/exim-{{ exim_version }}/doc/"
+  #       dest: /usr/share/doc/exim-4.87/
+  #       mode: '0644'
+  #       remote_src: yes
+
+  #   - name: Create symbolic link for sendmail
+  #     ansible.builtin.file:
+  #       src: /usr/sbin/exim
+  #       dest: /usr/sbin/sendmail
+  #       state: link
+
+  #   - name: Create spool directory for exim
+  #     ansible.builtin.file:
+  #       path: /var/spool/exim
+  #       state: directory
+  #       owner: exim
+  #       group: exim
+  #       mode: '0750'
+
+  #   # Configure Exim system
+  #   - name: Set write and sticky permissions on /var/mail
+  #     file:
+  #       path: /var/mail
+  #       mode: '1777'
+
+  #   - name: Add aliases to /etc/aliases
+  #     lineinfile:
+  #       path: /etc/aliases
+  #       line: "{{ item }}"
+  #     loop:
+  #       - "postmaster: root"
+  #       - "MAILER-DAEMON: root"
+
+  #   - name: Run exim configuration in verbose mode
+  #     command: exim -v -bi
+
+  #   - name: Start exim in background with 15 minute queue
+  #     command: /usr/sbin/exim -bd -q15m
+
+  #   - name: Copy bootscript files to target
+  #     copy:
+  #       src: "./data/{{ bootscript_name }}.tar.xz"
+  #       dest: "{{ install_dir }}/{{ bootscript_name }}.tar.xz"
+      
+  #   - name: Extract bootscript
+  #     ansible.builtin.unarchive:
+  #       src: "{{ install_dir }}/{{ bootscript_name }}.tar.xz"
+  #       dest: "{{ install_dir }}"
+  #       remote_src: yes
+
+  #   - name: Run make to build bootscript
+  #     command: make install-exim
+  #     args:
+  #       chdir: "{{ install_dir }}/{{ bootscript_name }}"
+
+  #   - name: Copy flag file to target
+  #     copy:
+  #       src: "./data/flag.txt"
+  #       dest: "/root/flag.txt"

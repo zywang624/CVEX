@@ -1,0 +1,4 @@
+ubuntu:
+  image: "bento/ubuntu-20.04"
+  version: "202407.23.0"
+  type: "linux"
